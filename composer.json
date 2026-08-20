@@ -1,0 +1,51 @@
+{
+    "name": "nugsoft/retention-extractor",
+    "description": "Pushes client activity and subscription data from a Laravel product into Retention Intel.",
+    "keywords": ["laravel", "retention", "churn", "nugsoft"],
+    "license": "MIT",
+    "type": "library",
+    "authors": [
+        {
+            "name": "Nugsoft Technologies",
+            "email": "dev@nugsoft.com"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "guzzlehttp/guzzle": "^7.5",
+        "illuminate/console": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/database": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/http": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/support": "^10.0|^11.0|^12.0|^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
+        "laravel/pint": "^1.20",
+        "pestphp/pest": "^2.0|^3.0|^4.0|^5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Nugsoft\\RetentionExtractor\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Nugsoft\\RetentionExtractor\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Nugsoft\\RetentionExtractor\\RetentionExtractorServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
