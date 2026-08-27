@@ -8,10 +8,13 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
+use Nugsoft\RetentionExtractor\Http\RetentionClient;
 use Nugsoft\RetentionExtractor\Support\SchemaInspector;
+use Throwable;
 
 use function Laravel\Prompts\confirm;
 use function Laravel\Prompts\select;
+use function Laravel\Prompts\text;
 
 /**
  * Walks the developer through mapping their schema onto Retention Intel's
@@ -65,22 +68,19 @@ class InstallCommand extends Command
         'fee_payments_7d' => ['fee_payments', 'payments'],
     ];
 
-    public function handle(SchemaInspector $schema): int
+    public function handle(SchemaInspector $schema, RetentionClient $api): int
     {
         $this->components->info('Retention Intel extractor setup');
         $this->line('  Reading your schema to propose a mapping. Nothing is sent anywhere.');
         $this->newLine();
 
-        $product = select(
-            label: 'Which product is this?',
-            options: array_keys(self::ProductMetrics),
-        );
+        [$product, $wanted] = $this->resolveContract($api);
 
         $tenantTable = $this->resolveTenancy($schema);
 
-        $lastActivity = $this->resolveLastActivity($schema, $product, $tenantTable);
+        $lastActivity = $this->resolveLastActivity($schema, $wanted, $tenantTable);
 
-        $metrics = $this->resolveMetrics($schema, $product, $tenantTable, $lastActivity);
+        $metrics = $this->resolveMetrics($schema, $wanted, $tenantTable, $lastActivity);
 
         $subscription = $this->resolveSubscription($schema, $tenantTable);
 
@@ -89,6 +89,95 @@ class InstallCommand extends Command
         $this->printNextSteps($product);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Which product this is, and what Retention Intel needs from it.
+     *
+     * Asked of Retention Intel rather than read off a list in here. The list
+     * only knew the five products that existed when it was written: a sixth
+     * could not be chosen at all, and what it claimed each product reports
+     * could drift from what is actually scored with nothing to catch it.
+     *
+     * The API key is what says which product is asking, so it is collected
+     * first — it has to be set before anything can be pushed anyway, and asking
+     * now saves a trip back to the .env between setting up and finding out
+     * whether it works.
+     *
+     * Falls back to the built-in list when Retention Intel cannot be reached,
+     * because being offline should not stop somebody mapping their schema. What
+     * it must not do is fall back silently: a product outside that list would
+     * then be set up against the wrong metrics entirely.
+     *
+     * @return array{0: string, 1: array<int, string>}
+     */
+    private function resolveContract(RetentionClient $api): array
+    {
+        $url = text(
+            label: 'Where is Retention Intel?',
+            default: (string) config('retention-extractor.api.url'),
+            required: true,
+        );
+
+        $key = text(
+            label: 'The API key issued for this product',
+            placeholder: '64 hex characters, from the CTO',
+            default: (string) config('retention-extractor.api.key'),
+            hint: 'Leave blank to map your schema offline against the built-in list.',
+        );
+
+        config()->set('retention-extractor.api.url', $url);
+        config()->set('retention-extractor.api.key', $key);
+
+        if (blank($key)) {
+            return $this->contractFromBuiltInList('No key given.');
+        }
+
+        try {
+            $contract = $api->metrics();
+        } catch (Throwable $exception) {
+            return $this->contractFromBuiltInList($exception->getMessage());
+        }
+
+        $product = $contract['product']['code'];
+
+        $this->components->info("Retention Intel knows this key as {$contract['product']['name']}.");
+
+        if ($contract['scored'] === false) {
+            $this->components->warn(
+                "Nobody has decided how {$product} is scored yet, so it is asked for nothing. "
+                .'Its pushes are kept, and start counting the day somebody writes its targets.'
+            );
+        }
+
+        return [$product, $contract['required']];
+    }
+
+    /**
+     * The metrics this package shipped knowing about, when Retention Intel
+     * cannot be asked.
+     *
+     * Says why it is guessing, and says which products it knows — somebody
+     * setting up a product that is not among them needs to know that answering
+     * this prompt cannot give them the right answer.
+     *
+     * @return array{0: string, 1: array<int, string>}
+     */
+    private function contractFromBuiltInList(string $because): array
+    {
+        $this->newLine();
+        $this->components->warn("Could not ask Retention Intel what it needs: {$because}");
+        $this->line('  Falling back to the list built into this package, which knows only the');
+        $this->line('  products that existed when it was released. If yours is newer than that,');
+        $this->line('  stop, fix the connection, and run this again.');
+        $this->newLine();
+
+        $product = select(
+            label: 'Which product is this?',
+            options: array_keys(self::ProductMetrics),
+        );
+
+        return [$product, ['login_count_7d', ...self::ProductMetrics[$product]]];
     }
 
     /**
@@ -157,12 +246,13 @@ class InstallCommand extends Command
     }
 
     /**
+     * @param  array<int, string>  $wanted
      * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
-     * @return array{table: string, via: ?string, date: string}
+     * @return array{table: string, via: string|array<string, array{0: string, 1: string, 2: string}>|null, date: string}
      */
-    private function resolveLastActivity(SchemaInspector $schema, string $product, ?array $tenant): array
+    private function resolveLastActivity(SchemaInspector $schema, array $wanted, ?array $tenant): array
     {
-        $candidates = $this->rankForProduct($schema->guessActivityTables(), $product, $schema);
+        $candidates = $this->rankForMetrics($schema->guessActivityTables(), $wanted);
 
         $table = select(
             label: 'Which table best represents real use of this product?',
@@ -189,14 +279,17 @@ class InstallCommand extends Command
      * well reflect it.
      *
      * @param  array<int, string>  $candidates
+     * @param  array<int, string>  $wanted
      * @return array<int, string>
      */
-    private function rankForProduct(array $candidates, string $product, SchemaInspector $schema): array
+    private function rankForMetrics(array $candidates, array $wanted): array
     {
         $preferred = [];
 
-        foreach (self::ProductMetrics[$product] as $metric) {
-            foreach (self::MetricTableHints[$metric] as $table) {
+        foreach ($wanted as $metric) {
+            // A metric Retention Intel asks for that this package has never
+            // heard of has no hint, and simply contributes no preference.
+            foreach (self::MetricTableHints[$metric] ?? [] as $table) {
                 if (in_array($table, $candidates, true) && ! in_array($table, $preferred, true)) {
                     $preferred[] = $table;
                 }
@@ -207,21 +300,20 @@ class InstallCommand extends Command
     }
 
     /**
+     * @param  array<int, string>  $wanted
      * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
-     * @param  array{table: string, via: ?string, date: string}  $lastActivity
+     * @param  array<string, mixed>  $lastActivity
      * @return array<string, array<string, mixed>>
      */
-    private function resolveMetrics(SchemaInspector $schema, string $product, ?array $tenant, array $lastActivity): array
+    private function resolveMetrics(SchemaInspector $schema, array $wanted, ?array $tenant, array $lastActivity): array
     {
         $this->newLine();
-        $this->components->info('Now the metrics '.Str::headline($product).' reports.');
+        $this->components->info('Now the metrics Retention Intel scores this product on.');
         $this->line('  Pick the table each one is counted from. Choose <fg=yellow>skip</> to leave it out.');
         $this->newLine();
 
         $tables = $schema->tables();
         $metrics = [];
-
-        $wanted = ['login_count_7d', ...self::ProductMetrics[$product]];
 
         foreach ($wanted as $metric) {
             $table = select(
@@ -424,7 +516,7 @@ class InstallCommand extends Command
 
     /**
      * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
-     * @param  array{table: string, via: ?string, date: string}  $lastActivity
+     * @param  array<string, mixed>  $lastActivity
      * @param  array<string, array<string, mixed>>  $metrics
      * @param  array<string, mixed>|null  $subscription
      */
