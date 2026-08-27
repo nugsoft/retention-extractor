@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Nugsoft\RetentionExtractor\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Support\SchemaInspector;
 
 use function Laravel\Prompts\confirm;
@@ -36,6 +38,33 @@ class InstallCommand extends Command
         'school_monitor' => ['academic_entries_7d', 'attendance_records_7d', 'fee_payments_7d'],
     ];
 
+    /**
+     * Where each metric is usually counted from, most likely first.
+     *
+     * Read twice: to default each metric's own table, and to put the tables a
+     * product actually measures at the front of the "real use of this product"
+     * list. One list, so those two answers cannot drift apart.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private const array MetricTableHints = [
+        'login_count_7d' => ['sessions', 'logins', 'login_logs', 'user_sessions', 'users'],
+        'items_sold_7d' => ['sale_items', 'order_items', 'line_items'],
+        'transactions_7d' => ['sales', 'transactions', 'orders'],
+        'transaction_value_7d' => ['sales', 'transactions', 'orders', 'payments'],
+        'visits_7d' => ['client_visits', 'visits', 'appointments', 'consultations'],
+        'lab_requests_7d' => ['laboratory_orders', 'lab_requests', 'lab_tests', 'investigations'],
+        'prescriptions_7d' => ['visit_prescriptions', 'prescriptions'],
+        // A clinic's patients are usually its `clients`; the tenant is the
+        // facility they attend.
+        'new_patients_7d' => ['patients', 'clients'],
+        'member_registrations_7d' => ['members'],
+        'loan_disbursements_7d' => ['loans', 'disbursements'],
+        'academic_entries_7d' => ['results', 'marks', 'grades'],
+        'attendance_records_7d' => ['attendances', 'attendance_records'],
+        'fee_payments_7d' => ['fee_payments', 'payments'],
+    ];
+
     public function handle(SchemaInspector $schema): int
     {
         $this->components->info('Retention Intel extractor setup');
@@ -49,7 +78,7 @@ class InstallCommand extends Command
 
         $tenantTable = $this->resolveTenancy($schema);
 
-        $lastActivity = $this->resolveLastActivity($schema, $tenantTable);
+        $lastActivity = $this->resolveLastActivity($schema, $product, $tenantTable);
 
         $metrics = $this->resolveMetrics($schema, $product, $tenantTable, $lastActivity);
 
@@ -81,14 +110,34 @@ class InstallCommand extends Command
             return null;
         }
 
+        $tables = $schema->tables();
+
+        if ($tables === []) {
+            throw new ConfigurationException(
+                'No tables found on the '.DB::connection()->getName().' connection. '
+                .'Run your migrations before setting up the extractor.'
+            );
+        }
+
         $table = select(
             label: 'Which table holds those businesses?',
-            options: $schema->tables(),
-            default: $guess ?? $schema->tables()[0],
+            options: $tables,
+            default: $guess ?? $tables[0],
             scroll: 15,
         );
 
         $columns = $schema->columns($table);
+
+        // A select with no options cannot be answered or escaped — it simply
+        // sits there, which is what happened when the tenant guess matched a
+        // table in somebody else's database. Say what is wrong instead.
+        if ($columns === []) {
+            throw new ConfigurationException(
+                "Table '{$table}' has no readable columns on the '"
+                .DB::connection()->getName()."' connection. Check that it belongs to this "
+                .'product\'s database and that the connection user can read it.'
+            );
+        }
 
         return [
             'table' => $table,
@@ -111,9 +160,9 @@ class InstallCommand extends Command
      * @param  array{table: string, key: string, model: string}|null  $tenant
      * @return array{table: string, via: ?string, date: string}
      */
-    private function resolveLastActivity(SchemaInspector $schema, ?array $tenant): array
+    private function resolveLastActivity(SchemaInspector $schema, string $product, ?array $tenant): array
     {
-        $candidates = $schema->guessActivityTables();
+        $candidates = $this->rankForProduct($schema->guessActivityTables(), $product, $schema);
 
         $table = select(
             label: 'Which table best represents real use of this product?',
@@ -128,6 +177,33 @@ class InstallCommand extends Command
             'via' => $tenant === null ? null : $schema->guessTenantKey($table, $tenant['table']),
             'date' => $schema->guessDateColumn($table) ?? 'created_at',
         ];
+    }
+
+    /**
+     * Puts the tables this particular product measures at the front.
+     *
+     * The candidate list is ordered for retail, so a clinic was offered `sales`
+     * as the table best representing real use of it — a table Clinic Plus does
+     * have, and which says nothing about whether anybody is treating patients.
+     * The product has already been chosen by this point, so the ordering may as
+     * well reflect it.
+     *
+     * @param  array<int, string>  $candidates
+     * @return array<int, string>
+     */
+    private function rankForProduct(array $candidates, string $product, SchemaInspector $schema): array
+    {
+        $preferred = [];
+
+        foreach (self::ProductMetrics[$product] ?? [] as $metric) {
+            foreach (self::MetricTableHints[$metric] ?? [] as $table) {
+                if (in_array($table, $candidates, true) && ! in_array($table, $preferred, true)) {
+                    $preferred[] = $table;
+                }
+            }
+        }
+
+        return [...$preferred, ...array_values(array_diff($candidates, $preferred))];
     }
 
     /**
@@ -179,23 +255,7 @@ class InstallCommand extends Command
      */
     private function defaultTableFor(string $metric, array $tables, string $activityTable): string
     {
-        $hints = [
-            'login_count_7d' => ['sessions', 'logins', 'login_logs', 'user_sessions', 'users'],
-            'items_sold_7d' => ['sale_items', 'order_items', 'line_items'],
-            'transactions_7d' => ['sales', 'transactions', 'orders'],
-            'transaction_value_7d' => ['sales', 'transactions', 'orders', 'payments'],
-            'visits_7d' => ['visits', 'appointments', 'consultations'],
-            'lab_requests_7d' => ['lab_requests', 'lab_tests', 'investigations'],
-            'prescriptions_7d' => ['prescriptions'],
-            'new_patients_7d' => ['patients'],
-            'member_registrations_7d' => ['members'],
-            'loan_disbursements_7d' => ['loans', 'disbursements'],
-            'academic_entries_7d' => ['results', 'marks', 'grades'],
-            'attendance_records_7d' => ['attendances', 'attendance_records'],
-            'fee_payments_7d' => ['fee_payments', 'payments'],
-        ];
-
-        foreach ($hints[$metric] ?? [] as $candidate) {
+        foreach (self::MetricTableHints[$metric] ?? [] as $candidate) {
             if (in_array($candidate, $tables, true)) {
                 return $candidate;
             }
@@ -226,13 +286,27 @@ class InstallCommand extends Command
         ];
     }
 
+    /**
+     * The conventional model class for a tenant table.
+     *
+     * Written into the config either way — a product whose model sits somewhere
+     * other than App\Models needs to correct one line, which is the same job as
+     * checking every other guess this command makes. Said out loud when it is
+     * not there, rather than tested in a ternary returning the same thing on
+     * both branches, which is what this did before and could not warn anybody.
+     */
     private function guessModelClass(string $table): string
     {
-        $class = '\\App\\Models\\'.Str::studly(Str::singular($table)).'::class';
+        $class = '\\App\\Models\\'.Str::studly(Str::singular($table));
 
-        return class_exists(trim(str_replace('::class', '', $class), '\\'))
-            ? $class
-            : $class;
+        if (! class_exists($class)) {
+            $this->components->warn(
+                "No class found at {$class}. It has been written into the config anyway — "
+                .'point clients.model at your tenant model before pushing.'
+            );
+        }
+
+        return $class.'::class';
     }
 
     /**
