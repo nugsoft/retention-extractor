@@ -67,5 +67,32 @@ abstract class TestCase extends Orchestra
             $table->string('status');
             $table->timestamps();
         });
+
+        // Laravel's own sessions table: no tenant column of its own, and
+        // last_activity a unix integer rather than a datetime. This is the
+        // table a product reaches for when asked to count logins, so the
+        // mapping has to cope with both awkwardnesses.
+        Schema::create('sessions', function (Blueprint $table): void {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable();
+            $table->integer('last_activity');
+        });
+
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('business_id');
+            $table->string('name');
+        });
+
+        // One table holding every kind of event — the shape School Monitor
+        // keeps its audit trail in, where counting logins means naming which
+        // action is one.
+        Schema::create('audit_trail', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('business_id');
+            $table->foreignId('user_id');
+            $table->string('action');
+            $table->timestamps();
+        });
     }
 }

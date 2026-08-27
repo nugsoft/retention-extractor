@@ -126,15 +126,58 @@ never reporting them would hide exactly the clients most at risk.
 
 Leave it `null` and no subscription data is pushed.
 
+### Counting logins, wherever your product keeps them
+
+Almost no two products record a login in the same place, so three keys exist
+for it. Laravel's own `sessions` table needs all three:
+
+```php
+'login_count_7d' => [
+    'table' => 'sessions',
+    'distinct' => 'user_id',                                  // people, not rows
+    'via' => ['user_id' => ['users', 'id', 'business_id']],   // no tenant column of its own
+    'date' => 'last_activity',
+    'date_format' => 'timestamp',                             // a unix integer, not a datetime
+],
+```
+
+An audit trail holding every kind of event needs `where` to say which one is a
+login:
+
+```php
+'login_count_7d' => [
+    'table' => 'audit_trail',
+    'distinct' => 'user_id',
+    'via' => 'business_id',
+    'date' => 'created_at',
+    'where' => ['action' => ['login', 'signed_in']],
+],
+```
+
+`date_format` matters more than it looks. Without it a unix column is compared
+against a datetime string, which MySQL casts to 0 — every row matches and the
+metric reports the whole table while looking entirely reasonable.
+
+**If your product records nothing that means "somebody used this", leave the
+metric out.** Retention Intel asks only for what it scores you on.
+
 ### Metrics Retention Intel scores
+
+A product is asked for exactly what it is scored on — its `targets` block in
+Retention Intel's `config/health_score.php`, and nothing else. Adding a new
+product to the system is adding that one block.
 
 | Product | Metrics |
 | --- | --- |
-| all | `login_count_7d` |
-| POScream, POSCafe | `items_sold_7d`, `transactions_7d`, `transaction_value_7d` |
+| POScream, POSCafe | `login_count_7d`, `items_sold_7d`, `transactions_7d`, `transaction_value_7d` |
 | Clinic Plus | `visits_7d`, `lab_requests_7d`, `prescriptions_7d`, `new_patients_7d` |
-| Mfuko | `member_registrations_7d`, `loan_disbursements_7d`, `transactions_7d`, `transaction_value_7d` |
-| School Monitor | `academic_entries_7d`, `attendance_records_7d`, `fee_payments_7d` |
+| Mfuko | `login_count_7d`, `member_registrations_7d`, `loan_disbursements_7d`, `transactions_7d`, `transaction_value_7d` |
+| School Monitor | `login_count_7d`, `academic_entries_7d`, `attendance_records_7d`, `fee_payments_7d` |
+
+Clinic Plus is the worked example of a product that cannot report a component:
+it records logins nowhere, so it declares no login target, is never asked for
+one, and is scored across what a clinic can actually be asked about instead of
+being capped at four fifths of the score for ever.
 
 Anything else you send is kept in `raw_payload` but not scored.
 

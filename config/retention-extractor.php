@@ -116,6 +116,42 @@ return [
     |
     |         'via' => ['sale_id' => ['sales', 'id', 'business_id']],
     |
+    | Three more keys, for the metrics that are not a plain count of a table.
+    | `login_count_7d` needs all three more often than not, because almost no
+    | two products record a login in the same place:
+    |
+    |   'distinct' => 'user_id'
+    |       Counts the people behind the rows rather than the rows. Three
+    |       sessions from one nurse is one nurse.
+    |
+    |   'where' => ['action' => 'login']
+    |       Narrows to the rows that are the event you mean. An audit trail is
+    |       one table holding everything that ever happened, so counting logins
+    |       out of it means saying which action is one. Give it a list to match
+    |       any of several: ['action' => ['login', 'signed_in']].
+    |
+    |   'date_format' => 'timestamp'
+    |       For a column holding a unix integer instead of a datetime. Laravel's
+    |       own `sessions.last_activity` is one. WITHOUT THIS the window is
+    |       compared against a datetime string, which MySQL casts to 0 — every
+    |       row matches and the metric quietly reports the whole table.
+    |
+    | Reading logins out of Laravel's sessions table, which carries no tenant
+    | column of its own, therefore looks like this:
+    |
+    |     'login_count_7d' => [
+    |         'table'       => 'sessions',
+    |         'distinct'    => 'user_id',
+    |         'via'         => ['user_id' => ['users', 'id', 'business_id']],
+    |         'date'        => 'last_activity',
+    |         'date_format' => 'timestamp',
+    |     ],
+    |
+    | If your product records nothing that means "somebody used this", leave the
+    | metric out. Retention Intel asks only for what it scores you on, and a
+    | product that cannot report a component is scored across the ones it can
+    | rather than marked down for the gap.
+    |
     */
 
     'metrics' => [],
