@@ -63,6 +63,7 @@ class RetentionClient
      *     required: array<int, string>,
      *     accepted: array<int, string>,
      *     components: array<int, string>,
+     *     hints: array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>,
      * }
      */
     public function metrics(): array
@@ -73,7 +74,7 @@ class RetentionClient
             throw PushFailedException::fromResponse('/api/v1/metrics', $response->status(), $response->body());
         }
 
-        /** @var array{product: array{code: string, name: string}, scored: bool, required: array<int, string>, accepted: array<int, string>, components: array<int, string>} $contract */
+        /** @var array{product: array{code: string, name: string}, scored: bool, required: array<int, string>, accepted: array<int, string>, components: array<int, string>, hints: array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>} $contract */
         $contract = $response->json() ?? [];
 
         return $contract;

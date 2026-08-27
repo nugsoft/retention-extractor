@@ -69,9 +69,10 @@ class InstallCommand extends Command
     ];
 
     /**
-     * Where Retention Intel says this product keeps each metric.
+     * Where Retention Intel says this product keeps each metric, and which of
+     * that table's rows count.
      *
-     * @var array<string, array<int, string>>
+     * @var array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>
      */
     private array $hints = [];
 
@@ -359,16 +360,49 @@ class InstallCommand extends Command
             $isValue = str_contains($metric, '_value_');
             $amountColumn = $isValue ? $schema->guessAmountColumn($table) : null;
 
+            $narrowing = $this->narrowingFor($metric, $table);
+
             $metrics[$metric] = array_filter([
                 'table' => $table,
                 'sum' => $amountColumn,
-                'count' => $amountColumn === null ? '*' : null,
+                'count' => $amountColumn === null && ! isset($narrowing['distinct']) ? '*' : null,
+                'distinct' => $narrowing['distinct'] ?? null,
                 'via' => $via,
                 'date' => $schema->guessDateColumn($table),
+                'where' => $narrowing['where'] ?? null,
             ], fn (mixed $value): bool => $value !== null);
         }
 
         return $metrics;
+    }
+
+    /**
+     * Which rows of this table count, where Retention Intel has said.
+     *
+     * Naming a table is not always enough. School Monitor writes the same
+     * `auth` action for logging in, logging out, changing a password and
+     * impersonating somebody, so counting that table — or even counting that
+     * action — reports roughly twice the logins there were, every session
+     * counted again on the way out, and looks entirely reasonable doing it.
+     *
+     * Only applied where the hint's own table is the one being used. A filter
+     * written for `system_audit_trails` means nothing against whatever else
+     * somebody chose instead, and applied blindly would quietly match no rows.
+     *
+     * @return array{where?: array<string, mixed>, distinct?: string}
+     */
+    private function narrowingFor(string $metric, string $table): array
+    {
+        $hint = $this->hints[$metric] ?? [];
+
+        if (! in_array($table, $hint['tables'] ?? [], true)) {
+            return [];
+        }
+
+        return array_filter([
+            'where' => $hint['where'] ?? null,
+            'distinct' => $hint['distinct'] ?? null,
+        ], fn (mixed $value): bool => $value !== null);
     }
 
     /**
@@ -478,7 +512,7 @@ class InstallCommand extends Command
         // Retention Intel first. Table names are knowledge about a product, and
         // it is where that knowledge is kept and corrected — no release of this
         // package is needed to teach it a new one.
-        foreach ($this->hints[$metric] ?? [] as $candidate) {
+        foreach ($this->hints[$metric]['tables'] ?? [] as $candidate) {
             if (in_array($candidate, $tables, true)) {
                 return $candidate;
             }

@@ -214,3 +214,94 @@ describe('when Retention Intel cannot be reached', function (): void {
         Http::assertNothingSent();
     });
 });
+
+/**
+ * Naming a table is not always enough to count a metric out of it.
+ *
+ * School Monitor writes the same `auth` action for logging in, logging out,
+ * changing a password and impersonating somebody. Counting that table — or even
+ * counting that action — reports roughly twice the logins there were, every
+ * session counted again on the way out, and looks entirely reasonable doing it.
+ */
+describe('a hint that says which rows count', function (): void {
+    it('writes the filter alongside the table', function (): void {
+        $this->fakeContract(required: ['login_count_7d'], hints: [
+            'login_count_7d' => [
+                'tables' => ['audit_trail'],
+                'where' => ['action' => 'login'],
+            ],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['login_count_7d', 'audit_trail'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['login_count_7d'])
+            ->toMatchArray([
+                'table' => 'audit_trail',
+                'where' => ['action' => 'login'],
+                'via' => 'business_id',
+            ]);
+    });
+
+    it('counts people rather than rows when the hint says to', function (): void {
+        $this->fakeContract(required: ['login_count_7d'], hints: [
+            'login_count_7d' => [
+                'tables' => ['audit_trail'],
+                'distinct' => 'user_id',
+            ],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['login_count_7d', 'audit_trail'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        $mapping = $this->writtenConfig()['metrics']['login_count_7d'];
+
+        // Counting both would be counting twice.
+        expect($mapping['distinct'])->toBe('user_id')
+            ->and($mapping)->not->toHaveKey('count');
+    });
+
+    /**
+     * A filter written for one table means nothing against another, and
+     * applied blindly would quietly match no rows at all.
+     */
+    it('does not carry a filter onto a table the developer chose instead', function (): void {
+        $this->fakeContract(required: ['login_count_7d'], hints: [
+            'login_count_7d' => [
+                'tables' => ['audit_trail'],
+                'where' => ['action' => 'login'],
+            ],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['login_count_7d', 'sessions_log'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['login_count_7d'])
+            ->toMatchArray(['table' => 'sessions_log'])
+            ->not->toHaveKey('where');
+    });
+
+    it('proposes the hinted table without being told twice', function (): void {
+        $this->fakeContract(required: ['login_count_7d'], hints: [
+            'login_count_7d' => ['tables' => ['audit_trail']],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            // Answered with the default the wizard offered.
+            ['login_count_7d', 'audit_trail'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['login_count_7d']['table'])->toBe('audit_trail');
+    });
+});
