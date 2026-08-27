@@ -68,8 +68,22 @@ class InstallCommand extends Command
         'fee_payments_7d' => ['fee_payments', 'payments'],
     ];
 
+    /**
+     * Where Retention Intel says this product keeps each metric.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private array $hints = [];
+
+    /** The tenant table, for judging whether a candidate can reach a client. */
+    private ?string $tenantTable = null;
+
+    private SchemaInspector $schema;
+
     public function handle(SchemaInspector $schema, RetentionClient $api): int
     {
+        $this->schema = $schema;
+
         $this->components->info('Retention Intel extractor setup');
         $this->line('  Reading your schema to propose a mapping. Nothing is sent anywhere.');
         $this->newLine();
@@ -77,6 +91,8 @@ class InstallCommand extends Command
         [$product, $wanted] = $this->resolveContract($api);
 
         $tenantTable = $this->resolveTenancy($schema);
+
+        $this->tenantTable = $tenantTable['table'] ?? null;
 
         $lastActivity = $this->resolveLastActivity($schema, $wanted, $tenantTable);
 
@@ -140,6 +156,8 @@ class InstallCommand extends Command
         }
 
         $product = $contract['product']['code'];
+
+        $this->hints = $contract['hints'] ?? [];
 
         $this->components->info("Retention Intel knows this key as {$contract['product']['name']}.");
 
@@ -457,10 +475,32 @@ class InstallCommand extends Command
      */
     private function defaultTableFor(string $metric, array $tables, string $activityTable): string
     {
+        // Retention Intel first. Table names are knowledge about a product, and
+        // it is where that knowledge is kept and corrected — no release of this
+        // package is needed to teach it a new one.
+        foreach ($this->hints[$metric] ?? [] as $candidate) {
+            if (in_array($candidate, $tables, true)) {
+                return $candidate;
+            }
+        }
+
+        // Then the generic names this package shipped with, which cover the
+        // ordinary shapes nobody has had to write down.
         foreach (self::MetricTableHints[$metric] ?? [] as $candidate) {
             if (in_array($candidate, $tables, true)) {
                 return $candidate;
             }
+        }
+
+        // Then the schema itself. This cannot tell `exam_marks` from
+        // `exam_sets` — they are identical in everything but their names — but
+        // it rules out every table that could not hold a per-client weekly
+        // count whatever it is called, which is usually most of them, and it
+        // reads `fees_payments` as the fee payments without anybody saying so.
+        $ranked = $this->schema->rankForMetric($metric, $tables, $this->tenantTable);
+
+        if ($ranked !== []) {
+            return $ranked[0];
         }
 
         return in_array($activityTable, $tables, true) ? $activityTable : 'skip';

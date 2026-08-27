@@ -47,12 +47,14 @@ trait InstallHarness
      * What Retention Intel says it needs, when asked.
      *
      * @param  array<int, string>  $required
+     * @param  array<string, array<int, string>>  $hints
      */
     protected function fakeContract(
         string $code = 'poscream',
         string $name = 'POScream',
         array $required = ['login_count_7d', 'items_sold_7d', 'transactions_7d', 'transaction_value_7d'],
         bool $scored = true,
+        array $hints = [],
     ): void {
         Http::fake(['*/api/v1/metrics' => Http::response([
             'product' => ['code' => $code, 'name' => $name],
@@ -60,6 +62,7 @@ trait InstallHarness
             'required' => $required,
             'accepted' => $required,
             'components' => ['usage', 'transaction', 'login'],
+            'hints' => $hints,
         ])]);
     }
 

@@ -152,14 +152,27 @@ class SchemaInspector
     {
         $columns = $this->columns($table);
 
+        // Where the tenant table is known, the column derived from its name is
+        // the only answer accepted. The generic list below is not consulted,
+        // and that is the whole point of this being written down:
+        //
+        // `fees_payment_details` in School Monitor has no `school_id`, so the
+        // generic list was reached and matched `account_id` — a chart-of-
+        // accounts reference. Nothing about that is the school. Offered as a
+        // `via` and accepted, every figure from that table would have been
+        // grouped by the wrong thing entirely, and reported as fact.
+        //
+        // Returning null here is not a failure. The caller asks, and offers the
+        // two-step path, which is how most of these tables really do reach
+        // their tenant — through a branch, a sale, a visit.
         if ($tenantTable !== null) {
             $derived = Str::singular($tenantTable).'_id';
 
-            if (in_array($derived, $columns, true)) {
-                return $derived;
-            }
+            return in_array($derived, $columns, true) ? $derived : null;
         }
 
+        // Only when there is no tenant table to derive from. A guess is all
+        // there is, and the caller confirms it either way.
         foreach (self::TenantKeyCandidates as $candidate) {
             if (in_array($candidate, $columns, true)) {
                 return $candidate;
@@ -217,6 +230,114 @@ class SchemaInspector
         }
 
         return null;
+    }
+
+    /**
+     * Orders candidate tables by how much they look like they hold this metric.
+     *
+     * Naming knowledge cannot be had for free — six School Monitor tables carry
+     * `school_branch_id` and `created_at`, and only one of them is the academic
+     * entries. But a great deal can be ruled OUT by reading the schema, and
+     * ruling out is most of the work: of the two tables whose names match "fee
+     * payments", only one can reach the school at all, and of the three that
+     * look like logins, only one has both a tenant and a date.
+     *
+     * So a table scores for being reachable from the tenant and for being
+     * dated, since a metric cannot be counted per client per week without both,
+     * and then for how much of its name the metric's name accounts for. The
+     * name is the weakest signal deliberately: it is the one most likely to be
+     * a coincidence.
+     *
+     * @param  array<int, string>  $candidates
+     * @return array<int, string>
+     */
+    public function rankForMetric(string $metric, array $candidates, ?string $tenantTable): array
+    {
+        $scored = [];
+
+        foreach ($candidates as $table) {
+            $scored[$table] = $this->plausibility($metric, $table, $tenantTable);
+        }
+
+        // Anything that cannot be counted per client per week is not a
+        // candidate at all, however much its name suggests otherwise.
+        $scored = array_filter($scored, fn (int $score): bool => $score > 0);
+
+        arsort($scored);
+
+        return array_keys($scored);
+    }
+
+    /**
+     * How much this table looks like it holds this metric. Zero disqualifies.
+     */
+    private function plausibility(string $metric, string $table, ?string $tenantTable): int
+    {
+        if (! $this->hasTable($table)) {
+            return 0;
+        }
+
+        // A single-tenant product has nothing to reach, so this only counts
+        // where there is a tenant to be reachable from.
+        if ($tenantTable !== null && $this->guessTenantKey($table, $tenantTable) === null) {
+            return 0;
+        }
+
+        if ($this->guessDateColumn($table) === null) {
+            return 0;
+        }
+
+        $name = $this->nameOverlap($metric, $table);
+
+        // Reachable and dated is necessary and nowhere near sufficient — in
+        // School Monitor dozens of tables are both. Without the name saying so
+        // too, there is no candidate here worth proposing.
+        return $name === 0 ? 0 : 10 + $name;
+    }
+
+    /**
+     * How many of the metric's words appear in the table's name.
+     *
+     * Singularised on both sides, so `fee_payments_7d` recognises
+     * `fees_payments` — a difference of one letter that no list of exact names
+     * would ever have caught.
+     */
+    private function nameOverlap(string $metric, string $table): int
+    {
+        $metricWords = $this->words($metric);
+        $tableWords = $this->words($table);
+
+        // Every word of the metric has to be accounted for. A partial match is
+        // how `academic_entries_7d` picked `journal_entries` and
+        // `attendance_records_7d` picked `learner_medical_records` — one shared
+        // word each, and a confident wrong answer somebody would have accepted
+        // because it was already selected.
+        if (array_diff($metricWords, $tableWords) !== []) {
+            return 0;
+        }
+
+        // Then the closest fit wins: `fee_payments_7d` matches both
+        // `fees_payments` and `fees_payment_details`, and the one that adds
+        // nothing of its own is the one meant.
+        return 20 - min(19, count(array_diff($tableWords, $metricWords)));
+    }
+
+    /**
+     * A name's significant words, singularised so `fee_payments_7d` and
+     * `fees_payments` are recognisably the same thing — a difference of one
+     * letter that no list of exact names would ever have caught.
+     *
+     * @return array<int, string>
+     */
+    private function words(string $name): array
+    {
+        return array_values(array_filter(
+            array_map(
+                fn (string $word): string => Str::singular($word),
+                explode('_', (string) preg_replace('/_\d+d$/', '', $name)),
+            ),
+            fn (string $word): bool => $word !== '' && ! is_numeric($word) && ! in_array($word, ['count', 'record'], true),
+        ));
     }
 
     /**
