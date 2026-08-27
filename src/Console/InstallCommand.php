@@ -174,7 +174,7 @@ class InstallCommand extends Command
 
         return [
             'table' => $table,
-            'via' => $tenant === null ? null : $schema->guessTenantKey($table, $tenant['table']),
+            'via' => $this->resolveVia($schema, $table, $tenant, 'last_activity', allowSkip: false),
             'date' => $schema->guessDateColumn($table) ?? 'created_at',
         ];
     }
@@ -228,10 +228,21 @@ class InstallCommand extends Command
                 label: $metric,
                 options: ['skip', ...$tables],
                 default: $this->defaultTableFor($metric, $tables, $lastActivity['table']),
+                hint: $metric === 'login_count_7d'
+                    ? 'Skip this if the product keeps no record of people signing in — plenty do not.'
+                    : null,
                 scroll: 12,
             );
 
             if ($table === 'skip') {
+                continue;
+            }
+
+            $via = $this->resolveVia($schema, $table, $tenant, $metric);
+
+            // 'skip' comes back when there is no way from this table to the
+            // client and the answer is to leave the metric out.
+            if ($via === 'skip') {
                 continue;
             }
 
@@ -242,12 +253,111 @@ class InstallCommand extends Command
                 'table' => $table,
                 'sum' => $amountColumn,
                 'count' => $amountColumn === null ? '*' : null,
-                'via' => $tenant === null ? null : $schema->guessTenantKey($table, $tenant['table']),
+                'via' => $via,
                 'date' => $schema->guessDateColumn($table),
             ], fn (mixed $value): bool => $value !== null);
         }
 
         return $metrics;
+    }
+
+    /**
+     * How rows in this table reach the client they belong to.
+     *
+     * Asked rather than guessed-or-abandoned. Where the guess failed this used
+     * to write the mapping without a `via` at all, and the push then refused it
+     * — correctly, since counting the table whole for every client is worse
+     * than not counting it. But it meant `retention:install` produced a config
+     * it knew would be rejected, and said nothing about it: Clinic Plus was
+     * handed `sessions` for its login count, a table with no facility on it,
+     * and the first push died on exactly that.
+     *
+     * Three answers, because there are three real situations: the column is
+     * there and was not recognised, the table reaches the client through
+     * another one, or the product genuinely cannot measure this and the metric
+     * should be left out.
+     *
+     * @param  array{table: string, key: string, model: string}|null  $tenant
+     * @return string|array<string, array{0: string, 1: string, 2: string}>|null
+     */
+    private function resolveVia(SchemaInspector $schema, string $table, ?array $tenant, string $metric, bool $allowSkip = true): string|array|null
+    {
+        // Single-tenant: every row in the database belongs to the one client.
+        if ($tenant === null) {
+            return null;
+        }
+
+        $guess = $schema->guessTenantKey($table, $tenant['table']);
+
+        if ($guess !== null) {
+            return $guess;
+        }
+
+        $this->newLine();
+        $this->components->warn("Nothing on '{$table}' looks like a link to '{$tenant['table']}'.");
+
+        $columns = $schema->columns($table);
+
+        $answer = select(
+            label: "How does a row in '{$table}' reach the {$tenant['table']} it belongs to?",
+            options: [
+                ...($allowSkip ? ['skip' => "Leave {$metric} out — this product cannot measure it"] : []),
+                'hop' => 'Through another table',
+                ...array_combine($columns, $columns),
+            ],
+            hint: "Pick a column only if it holds a {$tenant['table']}.{$tenant['key']} value.",
+            scroll: 12,
+        );
+
+        return $answer === 'hop'
+            ? $this->resolveHop($schema, $table, $tenant, $columns)
+            : $answer;
+    }
+
+    /**
+     * A two-step path, for a table that reaches the client through another.
+     *
+     * Laravel's own `sessions` is the everyday case: it knows which user a row
+     * belongs to and nothing about which business that user works for.
+     *
+     * @param  array{table: string, key: string, model: string}  $tenant
+     * @param  array<int, string>  $columns
+     * @return array<string, array{0: string, 1: string, 2: string}>
+     */
+    private function resolveHop(SchemaInspector $schema, string $table, array $tenant, array $columns): array
+    {
+        $localKey = select(
+            label: "Which column on '{$table}' points at that other table?",
+            options: $columns,
+            scroll: 12,
+        );
+
+        $through = select(
+            label: 'And which table is that?',
+            options: $schema->tables(),
+            default: Str::plural(Str::beforeLast($localKey, '_id')),
+            scroll: 12,
+        );
+
+        $throughColumns = $schema->columns($through);
+
+        return [
+            $localKey => [
+                $through,
+                select(
+                    label: "Which column on '{$through}' does {$table}.{$localKey} match?",
+                    options: $throughColumns,
+                    default: $schema->firstPresent($throughColumns, ['id']) ?? 'id',
+                    scroll: 12,
+                ),
+                select(
+                    label: "And which column on '{$through}' holds the {$tenant['table']} it belongs to?",
+                    options: $throughColumns,
+                    default: $schema->guessTenantKey($through, $tenant['table']) ?? 'id',
+                    scroll: 12,
+                ),
+            ],
+        ];
     }
 
     /**
@@ -280,10 +390,13 @@ class InstallCommand extends Command
             return null;
         }
 
-        return [
-            ...$guess,
-            'via' => $tenant === null ? null : $schema->guessTenantKey($guess['table'], $tenant['table']),
-        ];
+        $via = $this->resolveVia($schema, $guess['table'], $tenant, 'the subscription');
+
+        if ($via === 'skip') {
+            return null;
+        }
+
+        return [...$guess, 'via' => $via];
     }
 
     /**
