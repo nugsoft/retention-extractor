@@ -11,6 +11,15 @@ use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
 {
+    use InstallHarness;
+
+    protected function tearDown(): void
+    {
+        $this->tearDownInstallHarness();
+
+        parent::tearDown();
+    }
+
     protected function getPackageProviders($app): array
     {
         return [RetentionExtractorServiceProvider::class];
