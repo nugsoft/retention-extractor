@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Extraction\ClientResolver;
 use Nugsoft\RetentionExtractor\Extraction\SnapshotBuilder;
@@ -100,4 +101,46 @@ it('pushes a real snapshot end to end', function (): void {
 
     expect($repeat['snapshot_id'])->toBe($activity['snapshot_id'])
         ->and($repeat['client_id'])->toBe($activity['client_id']);
+})->group('integration');
+
+/**
+ * The same journey a product team actually takes: run the command, against a
+ * real instance, and let it resolve, aggregate, build and post on its own.
+ *
+ * The test above proves the pieces work; this proves the thing they type does.
+ */
+it('pushes through the command itself', function (): void {
+    $business = Business::create([
+        'business_name' => 'Command Integration Shop',
+        'phone' => '+256700111222',
+        'email' => 'command@test.com',
+        'is_active' => true,
+    ]);
+
+    $saleId = DB::table('sales')->insertGetId([
+        'business_id' => $business->id, 'total' => 275000,
+        'created_at' => now()->subDays(2), 'updated_at' => now()->subDays(2),
+    ]);
+    DB::table('sale_items')->insert([
+        'sale_id' => $saleId, 'quantity' => 9,
+        'created_at' => now()->subDays(2), 'updated_at' => now()->subDays(2),
+    ]);
+    DB::table('sessions_log')->insert([
+        'business_id' => $business->id,
+        'created_at' => now()->subDays(2), 'updated_at' => now()->subDays(2),
+    ]);
+
+    // Dry run first: it must describe the push without performing it.
+    expect(Artisan::call('retention:push', ['--dry-run' => true]))->toBe(0);
+    expect(Artisan::output())
+        ->toContain('Command Integration Shop')
+        ->toContain('"transactions_7d": 1')
+        ->toContain('Nothing was sent');
+
+    // Then for real.
+    expect(Artisan::call('retention:push', ['--client' => (string) $business->id]))->toBe(0);
+    expect(Artisan::output())->toContain('Pushed 1 client(s)');
+
+    // Re-running is safe — both endpoints are idempotent.
+    expect(Artisan::call('retention:push', ['--client' => (string) $business->id]))->toBe(0);
 })->group('integration');

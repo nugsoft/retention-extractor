@@ -9,68 +9,6 @@ use Nugsoft\RetentionExtractor\Exceptions\PushFailedException;
 use Nugsoft\RetentionExtractor\Extraction\ClientResolver;
 use Nugsoft\RetentionExtractor\Extraction\SnapshotBuilder;
 use Nugsoft\RetentionExtractor\Http\RetentionClient;
-use Nugsoft\RetentionExtractor\Tests\Fixtures\Business;
-
-function multiTenantConfig(): void
-{
-    config()->set('retention-extractor.clients', [
-        'model' => Business::class,
-        'external_id' => 'id',
-        'name' => 'business_name',
-        'contact_phone' => 'phone',
-        'contact_email' => 'email',
-        'scope' => null,
-        'single' => [],
-    ]);
-
-    config()->set('retention-extractor.last_activity', [
-        'table' => 'sales', 'via' => 'business_id', 'date' => 'created_at',
-    ]);
-
-    config()->set('retention-extractor.metrics', [
-        'login_count_7d' => ['table' => 'sessions_log', 'count' => '*', 'via' => 'business_id', 'date' => 'created_at'],
-        'transactions_7d' => ['table' => 'sales', 'count' => '*', 'via' => 'business_id', 'date' => 'created_at'],
-        'transaction_value_7d' => ['table' => 'sales', 'sum' => 'total', 'via' => 'business_id', 'date' => 'created_at'],
-        'items_sold_7d' => [
-            'table' => 'sale_items',
-            'sum' => 'quantity',
-            'via' => ['sale_id' => ['sales', 'id', 'business_id']],
-            'date' => 'created_at',
-        ],
-    ]);
-}
-
-function makeBusiness(array $attributes = []): Business
-{
-    return Business::create([
-        'business_name' => 'Kampala Retail Ltd',
-        'phone' => '+256700000001',
-        'email' => 'owner@kampalaretail.com',
-        'is_active' => true,
-        ...$attributes,
-    ]);
-}
-
-function makeSale(int $businessId, float $total, int $daysAgo = 0, int $items = 0): int
-{
-    $saleId = DB::table('sales')->insertGetId([
-        'business_id' => $businessId,
-        'total' => $total,
-        'created_at' => now()->subDays($daysAgo),
-        'updated_at' => now()->subDays($daysAgo),
-    ]);
-
-    if ($items > 0) {
-        DB::table('sale_items')->insert([
-            'sale_id' => $saleId,
-            'quantity' => $items,
-            'created_at' => now()->subDays($daysAgo),
-            'updated_at' => now()->subDays($daysAgo),
-        ]);
-    }
-
-    return $saleId;
-}
 
 describe('resolving clients', function (): void {
     it('yields one record per tenant row', function (): void {
@@ -314,5 +252,138 @@ describe('talking to the API', function (): void {
 
         expect(fn () => app(RetentionClient::class)->pushActivity([]))
             ->toThrow(ConfigurationException::class, 'RETENTION_API_KEY');
+    });
+});
+
+/**
+ * A multi-tenant mapping that cannot say which column links a row to its client
+ * used to be treated as "no scoping needed" and reported the whole table to
+ * everybody. `retention:install` writes exactly that whenever it cannot guess
+ * the tenant column, so this was reachable by following the documented setup.
+ */
+describe('a multi-tenant mapping that cannot reach its tenant', function (): void {
+    beforeEach(function (): void {
+        multiTenantConfig();
+    });
+
+    it('refuses a metric with no via rather than counting the whole table', function (): void {
+        makeBusiness(['business_name' => 'Shop A']);
+
+        config()->set('retention-extractor.metrics.transactions_7d', [
+            'table' => 'sales', 'count' => '*', 'date' => 'created_at',
+        ]);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(fn () => app(SnapshotBuilder::class)->activityPayload($client))
+            ->toThrow(ConfigurationException::class, 'metrics.transactions_7d.via');
+    });
+
+    it('refuses last_activity with no via', function (): void {
+        makeBusiness();
+
+        config()->set('retention-extractor.last_activity', ['table' => 'sales', 'date' => 'created_at']);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(fn () => app(SnapshotBuilder::class)->activityPayload($client))
+            ->toThrow(ConfigurationException::class, 'last_activity.via');
+    });
+
+    it('refuses a subscription with no via rather than reporting somebody else\'s dates', function (): void {
+        $a = makeBusiness(['business_name' => 'Shop A']);
+        $b = makeBusiness(['business_name' => 'Shop B']);
+
+        // Only Shop B has a subscription. Unscoped, Shop A was handed it.
+        DB::table('subscriptions')->insert([
+            'business_id' => $b->id,
+            'starts_at' => now()->subYear()->toDateString(),
+            'ends_at' => now()->addYear()->toDateString(),
+            'status' => 'paid',
+        ]);
+
+        config()->set('retention-extractor.subscription', [
+            'table' => 'subscriptions', 'start' => 'starts_at', 'end' => 'ends_at', 'status' => 'status',
+        ]);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect($client->name)->toBe('Shop A')
+            ->and(fn () => app(SnapshotBuilder::class)->subscriptionPayload($client))
+            ->toThrow(ConfigurationException::class, 'subscription.via');
+    });
+
+    it('still leaves a single-tenant install unscoped, which is correct there', function (): void {
+        $business = makeBusiness();
+        makeSale($business->id, 100, daysAgo: 1);
+
+        config()->set('retention-extractor.clients', [
+            'model' => null,
+            'single' => ['external_id' => 'ACME-001', 'name' => 'Acme'],
+        ]);
+
+        config()->set('retention-extractor.metrics.transactions_7d', [
+            'table' => 'sales', 'count' => '*', 'date' => 'created_at',
+        ]);
+        config()->set('retention-extractor.last_activity', ['table' => 'sales', 'date' => 'created_at']);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->activityPayload($client)['transactions_7d'])->toBe(1);
+    });
+});
+
+describe('a subscription with no status the product understands', function (): void {
+    beforeEach(function (): void {
+        multiTenantConfig();
+        $this->business = makeBusiness();
+
+        // Clinic Plus's shape: enrolment and expiry dates, no status column.
+        config()->set('retention-extractor.subscription', [
+            'table' => 'subscriptions', 'via' => 'business_id',
+            'start' => 'starts_at', 'end' => 'ends_at', 'status' => 'status',
+        ]);
+    });
+
+    function subscriptionEnding(int $businessId, string $endDate, ?string $status = null): void
+    {
+        DB::table('subscriptions')->insert([
+            'business_id' => $businessId,
+            'starts_at' => now()->subYear()->toDateString(),
+            'ends_at' => $endDate,
+            'status' => $status ?? '',
+        ]);
+    }
+
+    it('reads a lapsed subscription off the end date rather than calling it active', function (): void {
+        subscriptionEnding($this->business->id, now()->subMonth()->toDateString());
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['status'])->toBe('expired');
+    });
+
+    it('still calls a subscription that has not run out active', function (): void {
+        subscriptionEnding($this->business->id, now()->addMonths(3)->toDateString());
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['status'])->toBe('active');
+    });
+
+    it('never infers cancelled, which only a person can say', function (): void {
+        subscriptionEnding($this->business->id, now()->subYear()->toDateString());
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['status'])->not->toBe('cancelled');
+    });
+
+    it('still prefers what the product says when it says something', function (): void {
+        subscriptionEnding($this->business->id, now()->subMonth()->toDateString(), 'cancelled');
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['status'])->toBe('cancelled');
     });
 });

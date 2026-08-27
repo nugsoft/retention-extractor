@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nugsoft\RetentionExtractor\Extraction;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
@@ -57,7 +58,19 @@ class SnapshotBuilder
 
         $query = DB::table($mapping['table']);
 
-        if ($client->isScoped() && filled($mapping['via'] ?? null)) {
+        if ($client->isScoped()) {
+            // Same refusal as MetricCollector::scoped(), and for a worse
+            // reason: unscoped, this takes whichever row happens to have the
+            // latest end date and reports another client's renewal dates as
+            // this one's.
+            if (blank($mapping['via'] ?? null)) {
+                throw ConfigurationException::missing(
+                    'subscription.via',
+                    'This install serves more than one client, so the mapping must name the column '
+                    .'linking a subscription back to its client.',
+                );
+            }
+
             $query->where($mapping['via'], $client->key);
         }
 
@@ -79,7 +92,7 @@ class SnapshotBuilder
             'product' => $this->product,
             'start_date' => substr((string) $start, 0, 10),
             'end_date' => substr((string) $end, 0, 10),
-            'status' => $this->mapStatus($row->{$mapping['status'] ?? 'status'} ?? null, $mapping),
+            'status' => $this->mapStatus($row->{$mapping['status'] ?? 'status'} ?? null, $mapping, (string) $end),
         ];
     }
 
@@ -104,11 +117,20 @@ class SnapshotBuilder
     }
 
     /**
+     * The product's own wording, translated into Retention Intel's.
+     *
+     * Where the product says nothing this reads the end date instead of
+     * assuming `active`. Assuming was wrong in the one direction that matters:
+     * a lapsed subscription reported as live is a churn signal deleted, and it
+     * is the ordinary case rather than an edge one — Clinic Plus records
+     * `enrolled_at` and `expires_at` and keeps no status column at all, so
+     * every expired facility would have been pushed as active for ever.
+     *
      * @param  array<string, mixed>  $mapping
      */
-    private function mapStatus(mixed $status, array $mapping): string
+    private function mapStatus(mixed $status, array $mapping, string $endDate): string
     {
-        $status = is_string($status) ? strtolower($status) : '';
+        $status = is_string($status) ? strtolower(trim($status)) : '';
 
         $map = $mapping['status_map'] ?? [];
 
@@ -116,8 +138,13 @@ class SnapshotBuilder
             return $map[$status];
         }
 
-        return in_array($status, ['active', 'expired', 'cancelled'], true)
-            ? $status
-            : 'active';
+        if (in_array($status, ['active', 'expired', 'cancelled'], true)) {
+            return $status;
+        }
+
+        // Nothing recognisable to go on. A subscription is only cancelled by
+        // somebody saying so, which is why that is never inferred here — the
+        // date can distinguish live from lapsed and nothing else.
+        return Carbon::parse($endDate)->endOfDay()->isPast() ? 'expired' : 'active';
     }
 }

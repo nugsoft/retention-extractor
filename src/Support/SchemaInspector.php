@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nugsoft\RetentionExtractor\Support;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -21,10 +22,17 @@ class SchemaInspector
      *
      * @var array<int, string>
      */
+    /*
+     * Ordered so the unambiguous words are tried first. `clients` and
+     * `customers` are last among the nouns because a product may well use them
+     * for the people it serves rather than for the businesses it serves — in
+     * Clinic Plus, `clients` is the patient table, and guessing it as the
+     * tenant would have scoped every figure to the wrong thing.
+     */
     private const array TenantCandidates = [
-        'businesses', 'tenants', 'companies', 'organisations', 'organizations',
-        'clients', 'customers', 'shops', 'stores', 'branches', 'accounts',
-        'schools', 'clinics', 'saccos',
+        'businesses', 'tenants', 'facilities', 'companies', 'organisations',
+        'organizations', 'schools', 'clinics', 'saccos', 'shops', 'stores',
+        'branches', 'accounts', 'clients', 'customers',
     ];
 
     /**
@@ -33,9 +41,9 @@ class SchemaInspector
      * @var array<int, string>
      */
     private const array TenantKeyCandidates = [
-        'business_id', 'tenant_id', 'company_id', 'organisation_id', 'organization_id',
-        'client_id', 'customer_id', 'shop_id', 'store_id', 'branch_id', 'account_id',
-        'school_id', 'clinic_id', 'sacco_id',
+        'business_id', 'tenant_id', 'facility_id', 'company_id', 'organisation_id',
+        'organization_id', 'school_id', 'clinic_id', 'sacco_id', 'shop_id',
+        'store_id', 'branch_id', 'account_id', 'client_id', 'customer_id',
     ];
 
     /**
@@ -45,20 +53,72 @@ class SchemaInspector
      */
     private const array ActivityCandidates = [
         'sales', 'orders', 'transactions', 'invoices', 'receipts', 'payments',
-        'visits', 'appointments', 'consultations', 'prescriptions',
+        'client_visits', 'visits', 'appointments', 'outpatient_consultations',
+        'consultations', 'laboratory_orders', 'visit_prescriptions', 'prescriptions',
         'attendances', 'attendance_records', 'results', 'enrolments',
         'loans', 'deposits', 'contributions', 'savings',
     ];
 
     /**
+     * The tables in the product's own database, and no others.
+     *
+     * On Laravel 12 `Schema::getTables()` returns every table on the server the
+     * connection's user can see, not just the current database. On a developer
+     * machine hosting a dozen projects that is thousands of tables from
+     * unrelated schemas, and the damage is not merely noise: the tenant guess
+     * matched a `businesses` table belonging to a different application, and
+     * asking that table for its columns then returned nothing — an install
+     * prompt with no options, which cannot be answered or escaped.
+     *
+     * Filtered on the row rather than passed as an argument because
+     * `getTables()` took no schema before Laravel 12, and this package supports
+     * back to 10. Older versions return no `schema` key, so their rows are kept
+     * as they are.
+     *
+     * The name compared against comes from the schema builder, never from
+     * `getDatabaseName()`: the two agree on MySQL and do not on SQLite, where
+     * the connection is `:memory:` while every table reports a schema of
+     * `main`. Comparing those would have filtered out the entire schema.
+     *
      * @return array<int, string>
      */
     public function tables(): array
     {
-        return array_map(
+        $current = $this->currentSchemaName();
+
+        return array_values(array_map(
             fn (array $table): string => $table['name'],
-            Schema::getTables(),
-        );
+            array_filter(
+                Schema::getTables(),
+                fn (array $table): bool => $current === null
+                    || ! array_key_exists('schema', $table)
+                    || $table['schema'] === $current,
+            ),
+        ));
+    }
+
+    /**
+     * What this driver calls the schema the connection is pointed at, or null
+     * on a version that has no such notion — in which case `getTables()` is
+     * already scoped and nothing needs filtering.
+     */
+    private function currentSchemaName(): ?string
+    {
+        $builder = Schema::connection(DB::connection()->getName());
+
+        if (! method_exists($builder, 'getCurrentSchemaName')) {
+            return null;
+        }
+
+        return $builder->getCurrentSchemaName();
+    }
+
+    /**
+     * Whether this table is one this product actually has.
+     */
+    public function hasTable(string $table): bool
+    {
+        return in_array($table, $this->tables(), true);
     }
 
     /**
