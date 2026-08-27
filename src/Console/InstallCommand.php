@@ -92,7 +92,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * @return array{table: string, key: string, model: string}|null
+     * @return array{table: string, key: string, name: string, model: string}|null
      */
     private function resolveTenancy(SchemaInspector $schema): ?array
     {
@@ -157,7 +157,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * @param  array{table: string, key: string, model: string}|null  $tenant
+     * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
      * @return array{table: string, via: ?string, date: string}
      */
     private function resolveLastActivity(SchemaInspector $schema, string $product, ?array $tenant): array
@@ -195,8 +195,8 @@ class InstallCommand extends Command
     {
         $preferred = [];
 
-        foreach (self::ProductMetrics[$product] ?? [] as $metric) {
-            foreach (self::MetricTableHints[$metric] ?? [] as $table) {
+        foreach (self::ProductMetrics[$product] as $metric) {
+            foreach (self::MetricTableHints[$metric] as $table) {
                 if (in_array($table, $candidates, true) && ! in_array($table, $preferred, true)) {
                     $preferred[] = $table;
                 }
@@ -207,7 +207,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * @param  array{table: string, key: string, model: string}|null  $tenant
+     * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
      * @param  array{table: string, via: ?string, date: string}  $lastActivity
      * @return array<string, array<string, mixed>>
      */
@@ -230,7 +230,7 @@ class InstallCommand extends Command
                 default: $this->defaultTableFor($metric, $tables, $lastActivity['table']),
                 hint: $metric === 'login_count_7d'
                     ? 'Skip this if the product keeps no record of people signing in — plenty do not.'
-                    : null,
+                    : '',
                 scroll: 12,
             );
 
@@ -277,7 +277,7 @@ class InstallCommand extends Command
      * another one, or the product genuinely cannot measure this and the metric
      * should be left out.
      *
-     * @param  array{table: string, key: string, model: string}|null  $tenant
+     * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
      * @return string|array<string, array{0: string, 1: string, 2: string}>|null
      */
     private function resolveVia(SchemaInspector $schema, string $table, ?array $tenant, string $metric, bool $allowSkip = true): string|array|null
@@ -320,7 +320,7 @@ class InstallCommand extends Command
      * Laravel's own `sessions` is the everyday case: it knows which user a row
      * belongs to and nothing about which business that user works for.
      *
-     * @param  array{table: string, key: string, model: string}  $tenant
+     * @param  array{table: string, key: string, name: string, model: string}  $tenant
      * @param  array<int, string>  $columns
      * @return array<string, array{0: string, 1: string, 2: string}>
      */
@@ -375,7 +375,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * @param  array{table: string, key: string, model: string}|null  $tenant
+     * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
      * @return array<string, mixed>|null
      */
     private function resolveSubscription(SchemaInspector $schema, ?array $tenant): ?array
@@ -423,7 +423,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * @param  array{table: string, key: string, model: string}|null  $tenant
+     * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
      * @param  array{table: string, via: ?string, date: string}  $lastActivity
      * @param  array<string, array<string, mixed>>  $metrics
      * @param  array<string, mixed>|null  $subscription

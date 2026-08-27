@@ -1,0 +1,19 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+
+    paths:
+        - src
+
+    # Laravel Prompts declares select(), confirm() and the rest inside
+    # function_exists() guards in a files-autoloaded helper, which PHPStan will
+    # not resolve however it is pointed at them. So it cannot check the
+    # arguments passed to any of them, and `hint: null` — a TypeError that
+    # killed a real install halfway through setup — goes straight past it.
+    # InstallCommandTest carries a targeted guard for that shape instead.
+
+    # The package is a library: it has no application to boot, so Larastan
+    # cannot resolve config() or the Eloquent models a host app supplies.
+    treatPhpDocTypesAsCertain: false
