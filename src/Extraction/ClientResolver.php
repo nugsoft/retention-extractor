@@ -7,6 +7,7 @@ namespace Nugsoft\RetentionExtractor\Extraction;
 use Generator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
 /**
@@ -99,7 +100,47 @@ class ClientResolver
             contactPhone: $this->optionalAttribute($model, $this->config['contact_phone'] ?? null),
             contactEmail: $this->optionalAttribute($model, $this->config['contact_email'] ?? null),
             key: $model->getKey(),
+            branches: $this->branchesOf($model),
         );
+    }
+
+    /**
+     * Where this client's work happens.
+     *
+     * Empty unless the product records branches and the mapping says how to
+     * find them — which is the ordinary case for a product with one location,
+     * and for a product that draws no such distinction.
+     *
+     * Read as a plain query rather than through a relationship, because the
+     * mapping names a table and two columns; requiring the product to have
+     * declared an Eloquent relationship would be requiring it to have
+     * anticipated this.
+     *
+     * @return array<int, BranchRecord>
+     */
+    private function branchesOf(Model $model): array
+    {
+        $branches = $this->config['branches'] ?? null;
+
+        if (! is_array($branches) || blank($branches['table'] ?? null)) {
+            return [];
+        }
+
+        $externalId = $branches['external_id'] ?? 'id';
+        $name = $branches['name'] ?? 'name';
+
+        $rows = DB::table($branches['table'])
+            ->where($branches['via'], $model->getKey())
+            ->orderBy($name)
+            ->get();
+
+        return $rows
+            ->map(fn (object $row): BranchRecord => new BranchRecord(
+                externalId: (string) $row->{$externalId},
+                name: (string) ($row->{$name} ?? $row->{$externalId}),
+                key: $row->{$branches['local_key'] ?? 'id'},
+            ))
+            ->all();
     }
 
     private function single(): ClientRecord
