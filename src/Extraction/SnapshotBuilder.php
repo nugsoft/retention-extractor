@@ -40,7 +40,35 @@ class SnapshotBuilder
                 'window_days' => (int) config('retention-extractor.window_days', 7),
                 'metrics' => $metrics,
             ],
+            // The breakdown behind those figures, where the product records
+            // branches. Omitted entirely otherwise, so a product with one
+            // location sends exactly what it sent before.
+            ...($client->hasBranches() ? ['branches' => $this->branchPayloads($client)] : []),
         ];
+    }
+
+    /**
+     * Each branch's own share of the same figures.
+     *
+     * The client's totals above are queried in their own right rather than
+     * summed from these. A product whose two readings disagree is worth
+     * knowing about, and quietly replacing one with the other would hide it.
+     *
+     * One query per metric per branch, which is the honest cost of the answer:
+     * a branch's figure cannot be had by dividing the client's.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function branchPayloads(ClientRecord $client): array
+    {
+        return array_map(
+            fn (BranchRecord $branch): array => [
+                ...$branch->toPayload(),
+                'last_activity_date' => $this->resolveLastActivityDate($client, $branch),
+                ...$this->metrics->collect($client, $branch),
+            ],
+            $client->branches,
+        );
     }
 
     /**
@@ -101,7 +129,7 @@ class SnapshotBuilder
      * they were created rather than skipped — never reporting them at all would
      * hide exactly the clients most at risk.
      */
-    private function resolveLastActivityDate(ClientRecord $client): string
+    private function resolveLastActivityDate(ClientRecord $client, ?BranchRecord $branch = null): string
     {
         $mapping = config('retention-extractor.last_activity');
 
@@ -112,7 +140,7 @@ class SnapshotBuilder
             );
         }
 
-        return $this->metrics->lastActivityDate($mapping, $client)
+        return $this->metrics->lastActivityDate($mapping, $client, $branch)
             ?? now()->subYear()->toDateString();
     }
 

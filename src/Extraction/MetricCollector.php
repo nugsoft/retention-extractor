@@ -29,12 +29,12 @@ class MetricCollector
     /**
      * @return array<string, int|float>
      */
-    public function collect(ClientRecord $client): array
+    public function collect(ClientRecord $client, ?BranchRecord $branch = null): array
     {
         $values = [];
 
         foreach ($this->metrics as $name => $mapping) {
-            $values[$name] = $this->aggregate($name, $mapping, $client);
+            $values[$name] = $this->aggregate($name, $mapping, $client, $branch);
         }
 
         return $values;
@@ -46,13 +46,13 @@ class MetricCollector
      *
      * @param  array<string, mixed>  $mapping
      */
-    public function lastActivityDate(array $mapping, ClientRecord $client): ?string
+    public function lastActivityDate(array $mapping, ClientRecord $client, ?BranchRecord $branch = null): ?string
     {
         $this->assertTable($mapping['table'] ?? null, 'last_activity.table');
 
         $dateColumn = $mapping['date'] ?? 'created_at';
 
-        $query = $this->scoped(DB::table($mapping['table']), $mapping, $client, 'last_activity');
+        $query = $this->scoped(DB::table($mapping['table']), $mapping, $client, 'last_activity', $branch);
 
         $this->applyFilters($query, $mapping);
 
@@ -74,11 +74,11 @@ class MetricCollector
     /**
      * @param  array<string, mixed>  $mapping
      */
-    private function aggregate(string $name, array $mapping, ClientRecord $client): int|float
+    private function aggregate(string $name, array $mapping, ClientRecord $client, ?BranchRecord $branch = null): int|float
     {
         $this->assertTable($mapping['table'] ?? null, "metrics.{$name}.table");
 
-        $query = $this->scoped(DB::table($mapping['table']), $mapping, $client, "metrics.{$name}");
+        $query = $this->scoped(DB::table($mapping['table']), $mapping, $client, "metrics.{$name}", $branch);
 
         $this->restrictToWindow($query, $mapping);
         $this->applyFilters($query, $mapping);
@@ -163,13 +163,36 @@ class MetricCollector
      *
      * @param  array<string, mixed>  $mapping
      */
-    private function scoped(Builder $query, array $mapping, ClientRecord $client, string $configKey): Builder
-    {
+    private function scoped(
+        Builder $query,
+        array $mapping,
+        ClientRecord $client,
+        string $configKey,
+        ?BranchRecord $branch = null,
+    ): Builder {
         if (! $client->isScoped()) {
             return $query;
         }
 
+        $branchKey = $this->branchKey();
+
+        // One branch's share. Naming the branch is narrower than naming the
+        // client, so nothing else needs adding: a row belonging to this branch
+        // belongs to this client by construction.
+        if ($branch !== null && $branchKey !== null) {
+            return $query->where($branchKey, $branch->key);
+        }
+
         $via = $mapping['via'] ?? null;
+
+        // A table that only records which BRANCH a row belongs to, which is the
+        // ordinary case where a product is branch-first: 103 of School
+        // Monitor's tables carry `school_branch_id` and 15 carry `school_id`.
+        // The client's total is every one of its branches, and asking for a
+        // client column that is not there would refuse a mapping that is right.
+        if (blank($via) && $branchKey !== null && $client->hasBranches()) {
+            return $query->whereIn($branchKey, $client->branchKeys());
+        }
 
         if (blank($via)) {
             throw ConfigurationException::missing(
@@ -192,6 +215,17 @@ class MetricCollector
         }
 
         return $query;
+    }
+
+    /**
+     * The column on an activity table naming which branch a row belongs to, or
+     * null where the product does not record branches.
+     */
+    private function branchKey(): ?string
+    {
+        $key = config('retention-extractor.clients.branches.key');
+
+        return is_string($key) && $key !== '' ? $key : null;
     }
 
     private function assertTable(?string $table, string $configKey): void

@@ -79,6 +79,9 @@ class InstallCommand extends Command
     /** The tenant table, for judging whether a candidate can reach a client. */
     private ?string $tenantTable = null;
 
+    /** The column an activity row uses to name its branch, where there are branches. */
+    private ?string $branchKey = null;
+
     private SchemaInspector $schema;
 
     public function handle(SchemaInspector $schema, RetentionClient $api): int
@@ -95,13 +98,17 @@ class InstallCommand extends Command
 
         $this->tenantTable = $tenantTable['table'] ?? null;
 
+        $branches = $this->resolveBranches($schema, $tenantTable);
+
+        $this->branchKey = $branches['key'] ?? null;
+
         $lastActivity = $this->resolveLastActivity($schema, $wanted, $tenantTable);
 
         $metrics = $this->resolveMetrics($schema, $wanted, $tenantTable, $lastActivity);
 
         $subscription = $this->resolveSubscription($schema, $tenantTable);
 
-        $this->writeConfig($product, $tenantTable, $lastActivity, $metrics, $subscription);
+        $this->writeConfig($product, $tenantTable, $branches, $lastActivity, $metrics, $subscription);
 
         $this->printNextSteps($product);
 
@@ -273,10 +280,28 @@ class InstallCommand extends Command
     {
         $candidates = $this->rankForMetrics($schema->guessActivityTables(), $wanted);
 
+        // Retention Intel may have been told outright where this product's real
+        // use is recorded, which beats anything guessable from here.
+        $hinted = array_values(array_filter(
+            $this->hints['last_activity']['tables'] ?? [],
+            fn (string $table): bool => $schema->hasTable($table),
+        ));
+
+        $candidates = [...$hinted, ...array_diff($candidates, $hinted)];
+
+        // Failing all that, at least order the whole list by whether a table
+        // could hold a weekly per-client figure at all. School Monitor matched
+        // none of the activity names, and this prompt arrived defaulted to
+        // `academic_reporting_cycle_sets` — the first table in the database by
+        // name, and a configuration table at that.
+        $options = $candidates !== []
+            ? $candidates
+            : $schema->orderByPlausibility($schema->tables(), $this->tenantTable, $this->branchKey);
+
         $table = select(
             label: 'Which table best represents real use of this product?',
-            options: $candidates !== [] ? $candidates : $schema->tables(),
-            default: $candidates[0] ?? $schema->tables()[0],
+            options: $options,
+            default: $options[0],
             hint: 'The newest row here decides how dormant a client looks — the strongest churn signal there is.',
             scroll: 15,
         );
@@ -338,7 +363,7 @@ class InstallCommand extends Command
             $table = select(
                 label: $metric,
                 options: ['skip', ...$tables],
-                default: $this->defaultTableFor($metric, $tables, $lastActivity['table']),
+                default: $this->defaultTableFor($metric, $tables),
                 hint: $metric === 'login_count_7d'
                     ? 'Skip this if the product keeps no record of people signing in — plenty do not.'
                     : '',
@@ -406,6 +431,90 @@ class InstallCommand extends Command
     }
 
     /**
+     * Where a client's work happens, for the products that record it.
+     *
+     * Asked because the answer changes every question that follows. Without it,
+     * a branch-first product is a wall of "nothing on this table looks like a
+     * link to schools" — 103 of School Monitor's tables carry
+     * `school_branch_id` and 15 carry `school_id`, so almost every metric had
+     * to be walked through a two-step hop by hand. With it, those tables reach
+     * the school through its branches and nothing needs asking at all.
+     *
+     * A branch is never a client. Retention Intel keeps one health score and
+     * one watchlist entry per business, whichever level the product bills.
+     *
+     * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
+     * @return array<string, string>|null
+     */
+    private function resolveBranches(SchemaInspector $schema, ?array $tenant): ?array
+    {
+        // Nothing to hang branches off: a single-tenant install has one client
+        // and one place.
+        if ($tenant === null) {
+            return null;
+        }
+
+        $guess = $schema->guessBranchTable($tenant['table']);
+
+        $hasBranches = confirm(
+            label: 'Does a business have branches, and is that where the work is recorded?',
+            default: $guess !== null,
+            hint: $guess !== null
+                ? "Found a '{$guess}' table, which suggests it does."
+                : 'Answer no if this product records everything against the business itself.',
+        );
+
+        if (! $hasBranches) {
+            return null;
+        }
+
+        $tables = $schema->tables();
+
+        $table = select(
+            label: 'Which table holds those branches?',
+            options: $tables,
+            default: $guess ?? $tables[0],
+            scroll: 12,
+        );
+
+        $columns = $schema->columns($table);
+
+        $key = $schema->guessBranchKey($table);
+
+        return [
+            'table' => $table,
+            'via' => select(
+                label: "Which column on '{$table}' says which business a branch belongs to?",
+                options: $columns,
+                default: $schema->guessTenantKey($table, $tenant['table']) ?? 'id',
+                scroll: 12,
+            ),
+            'external_id' => select(
+                label: 'Which column identifies each branch to Retention Intel?',
+                options: $columns,
+                default: $schema->firstPresent($columns, ['uuid', 'code', 'id']) ?? 'id',
+                hint: 'Like the business identifier: it must never change for a given branch.',
+                scroll: 12,
+            ),
+            'name' => select(
+                label: 'Which column holds the branch name?',
+                options: $columns,
+                default: $schema->firstPresent($columns, ['name', 'title', 'branch_name']) ?? 'name',
+                scroll: 12,
+            ),
+            // Typed rather than picked: this column lives on the OTHER tables,
+            // not on the branches, so there is no one list to offer. The name
+            // derived from the branch table is nearly always right.
+            'key' => text(
+                label: 'And which column do your other tables use to name a branch?',
+                default: $key,
+                required: true,
+                hint: 'This is what lets a table that only knows the branch be counted for the business.',
+            ),
+        ];
+    }
+
+    /**
      * How rows in this table reach the client they belong to.
      *
      * Asked rather than guessed-or-abandoned. Where the guess failed this used
@@ -435,6 +544,16 @@ class InstallCommand extends Command
 
         if ($guess !== null) {
             return $guess;
+        }
+
+        // A table that names the BRANCH already reaches the client, through it.
+        // This is the ordinary shape of a branch-first product rather than a
+        // special case — 103 of School Monitor's tables carry
+        // `school_branch_id` and 15 carry `school_id` — and without it every
+        // one of those arrived as a warning and a two-step hop to be answered
+        // by hand.
+        if ($this->branchKey !== null && in_array($this->branchKey, $schema->columns($table), true)) {
+            return null;
         }
 
         $this->newLine();
@@ -507,7 +626,7 @@ class InstallCommand extends Command
     /**
      * @param  array<int, string>  $tables
      */
-    private function defaultTableFor(string $metric, array $tables, string $activityTable): string
+    private function defaultTableFor(string $metric, array $tables): string
     {
         // Retention Intel first. Table names are knowledge about a product, and
         // it is where that knowledge is kept and corrected — no release of this
@@ -537,7 +656,18 @@ class InstallCommand extends Command
             return $ranked[0];
         }
 
-        return in_array($activityTable, $tables, true) ? $activityTable : 'skip';
+        // Nothing knows where this metric lives, so nothing is proposed.
+        //
+        // This used to fall back to whatever was picked as the table best
+        // representing real use of the product, which is a plausible guess for
+        // a transaction count and nonsense for anything else: School Monitor
+        // has no attendance table at all and was offered `exam_marks` for its
+        // attendance records, already selected. A default is accepted far more
+        // often than it is read.
+        //
+        // Skipping is recoverable and loud — Retention Intel refuses a push
+        // missing a metric it scores, and names it. A wrong table is silent.
+        return 'skip';
     }
 
     /**
@@ -590,6 +720,7 @@ class InstallCommand extends Command
 
     /**
      * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
+     * @param  array<string, string>|null  $branches
      * @param  array<string, mixed>  $lastActivity
      * @param  array<string, array<string, mixed>>  $metrics
      * @param  array<string, mixed>|null  $subscription
@@ -597,6 +728,7 @@ class InstallCommand extends Command
     private function writeConfig(
         string $product,
         ?array $tenant,
+        ?array $branches,
         array $lastActivity,
         array $metrics,
         ?array $subscription,
@@ -613,36 +745,48 @@ class InstallCommand extends Command
 
         $stub = file_get_contents(__DIR__.'/../../config/retention-extractor.php');
 
-        $stub = str_replace(
-            "    'metrics' => [],",
-            "    'metrics' => ".$this->export($metrics, 1).',',
-            $stub,
-        );
+        $stub = $this->replaceLine($stub, "    'metrics' => [],", "    'metrics' => ".$this->export($metrics, 1).',');
 
-        $stub = str_replace(
-            "    'last_activity' => null,",
-            "    'last_activity' => ".$this->export($lastActivity, 1).',',
-            $stub,
-        );
+        $stub = $this->replaceLine($stub, "    'last_activity' => null,", "    'last_activity' => ".$this->export($lastActivity, 1).',');
+
+        if ($branches !== null) {
+            $stub = $this->replaceLine($stub, "        'branches' => null,", "        'branches' => ".$this->export($branches, 2).',');
+        }
 
         if ($subscription !== null) {
-            $stub = str_replace(
-                "    'subscription' => null,",
-                "    'subscription' => ".$this->export($subscription, 1).',',
-                $stub,
-            );
+            $stub = $this->replaceLine($stub, "    'subscription' => null,", "    'subscription' => ".$this->export($subscription, 1).',');
         }
 
         if ($tenant !== null) {
-            $stub = str_replace("        'model' => null,", "        'model' => {$tenant['model']},", $stub);
-            $stub = str_replace("        'external_id' => 'id',", "        'external_id' => '{$tenant['key']}',", $stub);
-            $stub = str_replace("        'name' => 'name',", "        'name' => '{$tenant['name']}',", $stub);
+            $stub = $this->replaceLine($stub, "        'model' => null,", "        'model' => {$tenant['model']},");
+            $stub = $this->replaceLine($stub, "        'external_id' => 'id',", "        'external_id' => '{$tenant['key']}',");
+            $stub = $this->replaceLine($stub, "        'name' => 'name',", "        'name' => '{$tenant['name']}',");
         }
 
         file_put_contents($path, $stub);
 
         $this->newLine();
         $this->components->info('Wrote config/retention-extractor.php');
+    }
+
+    /**
+     * Replaces one whole line of the stub, once.
+     *
+     * Anchored, because these were plain substring replacements and the
+     * indentation was doing the anchoring: `        'name' => 'name',` matches
+     * inside ANY line indented eight spaces or more. Writing the tenant's name
+     * rewrote the same key inside the branches block below it and inside the
+     * worked example in the comment above that — three edits from one call, two
+     * of them wrong and neither visible until somebody read the file.
+     */
+    private function replaceLine(string $stub, string $find, string $replace): string
+    {
+        return preg_replace_callback(
+            '/^'.preg_quote($find, '/').'$/m',
+            fn (): string => $replace,
+            $stub,
+            limit: 1,
+        ) ?? $stub;
     }
 
     /**

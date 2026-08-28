@@ -48,9 +48,25 @@ abstract class TestCase extends Orchestra
             $table->timestamps();
         });
 
+        // Where a business's work actually happens. `sales` carries the branch
+        // as well as the business, so both readings can be tested; `visits`
+        // carries only the branch, which is the shape School Monitor is in.
+        Schema::create('business_branches', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('business_id');
+            $table->string('name');
+        });
+
+        Schema::create('visits', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('business_branch_id');
+            $table->timestamps();
+        });
+
         Schema::create('sales', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('business_id');
+            $table->foreignId('business_branch_id')->nullable();
             $table->decimal('total', 12, 2);
             $table->timestamps();
         });

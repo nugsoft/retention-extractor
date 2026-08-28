@@ -86,3 +86,52 @@ function makeSale(int $businessId, float $total, int $daysAgo = 0, int $items = 
 
     return $saleId;
 }
+
+/**
+ * A branch beneath a business, and the sale/visit rows that belong to it.
+ */
+function makeBranch(int $businessId, string $name): int
+{
+    return DB::table('business_branches')->insertGetId([
+        'business_id' => $businessId,
+        'name' => $name,
+    ]);
+}
+
+function makeBranchSale(int $businessId, int $branchId, float $total, int $daysAgo = 0): int
+{
+    return DB::table('sales')->insertGetId([
+        'business_id' => $businessId,
+        'business_branch_id' => $branchId,
+        'total' => $total,
+        'created_at' => now()->subDays($daysAgo),
+        'updated_at' => now()->subDays($daysAgo),
+    ]);
+}
+
+/**
+ * A visit knows only which BRANCH it belongs to — the shape School Monitor is
+ * in, where the business must be reached through its branches.
+ */
+function makeVisit(int $branchId, int $daysAgo = 0): void
+{
+    DB::table('visits')->insert([
+        'business_branch_id' => $branchId,
+        'created_at' => now()->subDays($daysAgo),
+        'updated_at' => now()->subDays($daysAgo),
+    ]);
+}
+
+/**
+ * The mapping a branch-aware product writes.
+ */
+function withBranches(): void
+{
+    config()->set('retention-extractor.clients.branches', [
+        'table' => 'business_branches',
+        'via' => 'business_id',
+        'external_id' => 'id',
+        'name' => 'name',
+        'key' => 'business_branch_id',
+    ]);
+}
