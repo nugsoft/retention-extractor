@@ -47,6 +47,40 @@ class RetentionClient
     }
 
     /**
+     * What Retention Intel needs from this product.
+     *
+     * Asked rather than assumed. This package used to carry its own list of the
+     * metrics each of five products reports, so a product added to Retention
+     * Intel could not be set up here at all until the package was released
+     * again — and the copy could drift from what is actually scored with
+     * nothing to notice.
+     *
+     * Nothing is passed: the API key says which product is asking.
+     *
+     * @return array{
+     *     product: array{code: string, name: string},
+     *     scored: bool,
+     *     required: array<int, string>,
+     *     accepted: array<int, string>,
+     *     components: array<int, string>,
+     *     hints: array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>,
+     * }
+     */
+    public function metrics(): array
+    {
+        $response = $this->request()->get($this->url('/api/v1/metrics'));
+
+        if ($response->failed()) {
+            throw PushFailedException::fromResponse('/api/v1/metrics', $response->status(), $response->body());
+        }
+
+        /** @var array{product: array{code: string, name: string}, scored: bool, required: array<int, string>, accepted: array<int, string>, components: array<int, string>, hints: array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>} $contract */
+        $contract = $response->json() ?? [];
+
+        return $contract;
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */

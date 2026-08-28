@@ -55,36 +55,10 @@ describe('the metric tables it proposes', function (): void {
     });
 });
 
-/**
- * The fault that reached a real install: select()'s $hint is typed `string`,
- * not `?string`, so a ternary passing null on one branch is a TypeError partway
- * through setup — after the developer has already answered several questions.
- *
- * PHPStan does not help here. Laravel Prompts declares its helpers inside
- * function_exists() guards in a files-autoloaded file, which PHPStan will not
- * resolve, so every argument passed to select() and confirm() is unchecked.
- *
- * This is a targeted guard, not a general one: it knows the shape that shipped.
- * Every `: null` ternary branch in this file feeds a prompt argument, and none
- * of those arguments is nullable. Crude, and it would have caught the bug.
+/*
+ * The regex guard that used to live here — scanning the source for a `: null`
+ * ternary feeding a prompt argument — is gone. It was a stand-in for not being
+ * able to run the command, written on the mistaken belief that Prompts could
+ * not be faked. InstallWizardTest runs the wizard for real and catches that
+ * fault as the TypeError it is, along with the ones a regex could never see.
  */
-describe('the prompts it calls', function (): void {
-    it('never hands a prompt a null where the signature wants a string', function (): void {
-        $source = (string) file_get_contents(
-            (new ReflectionClass(InstallCommand::class))->getFileName(),
-        );
-
-        $offenders = [];
-
-        foreach (explode("\n", $source) as $number => $line) {
-            // A ternary's else branch on its own line, or a null passed
-            // outright to one of the named string arguments.
-            if (preg_match('/^\s*:\s*null\s*,?\s*$/', $line) === 1
-                || preg_match('/\b(hint|label|modalHeading):\s*null\b/', $line) === 1) {
-                $offenders[] = 'line '.($number + 1).': '.trim($line);
-            }
-        }
-
-        expect($offenders)->toBe([], 'a prompt argument is null: '.implode(', ', $offenders));
-    });
-});

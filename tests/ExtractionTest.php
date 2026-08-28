@@ -387,3 +387,58 @@ describe('a subscription with no status the product understands', function (): v
         expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['status'])->toBe('cancelled');
     });
 });
+
+/**
+ * Asking Retention Intel what it needs, rather than carrying a list of it.
+ *
+ * The package knew five product codes, written down when those were all there
+ * were. A product added to Retention Intel afterwards could not be set up here
+ * until the package was released again, and the copy could drift from what is
+ * actually scored with nothing to catch it.
+ */
+describe('the metrics contract', function (): void {
+    it('asks with the product key and nothing else', function (): void {
+        Http::fake(['*' => Http::response([
+            'product' => ['code' => 'clinic_plus', 'name' => 'Clinic Plus'],
+            'scored' => true,
+            'required' => ['visits_7d', 'lab_requests_7d'],
+            'accepted' => ['visits_7d', 'lab_requests_7d', 'login_count_7d'],
+            'components' => ['usage', 'transaction'],
+        ])]);
+
+        $contract = app(RetentionClient::class)->metrics();
+
+        expect($contract['product']['code'])->toBe('clinic_plus')
+            ->and($contract['required'])->toBe(['visits_7d', 'lab_requests_7d']);
+
+        Http::assertSent(fn ($request): bool => $request->method() === 'GET'
+            && $request->url() === 'https://retention.test/api/v1/metrics'
+            && $request->hasHeader('Authorization', 'Bearer '.str_repeat('a', 64)));
+    });
+
+    it('carries a product this package has never heard of', function (): void {
+        Http::fake(['*' => Http::response([
+            'product' => ['code' => 'boda_express', 'name' => 'Boda Express'],
+            'scored' => true,
+            'required' => ['transactions_7d', 'login_count_7d'],
+            'accepted' => ['transactions_7d', 'login_count_7d'],
+            'components' => ['usage', 'login'],
+        ])]);
+
+        expect(app(RetentionClient::class)->metrics()['product']['code'])->toBe('boda_express');
+    });
+
+    it('explains a key that is not recognised, rather than returning nothing', function (): void {
+        Http::fake(['*' => Http::response(['message' => 'Unauthenticated.'], 401)]);
+
+        expect(fn () => app(RetentionClient::class)->metrics())
+            ->toThrow(PushFailedException::class, 'RETENTION_API_KEY');
+    });
+
+    it('refuses to ask without a key at all', function (): void {
+        config()->set('retention-extractor.api.key', null);
+
+        expect(fn () => app(RetentionClient::class)->metrics())
+            ->toThrow(ConfigurationException::class, 'RETENTION_API_KEY');
+    });
+});
