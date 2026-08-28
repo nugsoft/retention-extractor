@@ -100,6 +100,12 @@ return [
         |         'external_id' => 'id',          // stable, like the client's
         |         'name' => 'name',
         |         'key' => 'school_branch_id',    // activity row -> its branch
+        |
+        |         // Optional, and worth filling in: this is usually the only
+        |         // place a client's address and contacts exist at all.
+        |         'address' => 'address',
+        |         'contact_phone' => 'main_contact',
+        |         'contact_email' => 'email',
         |     ],
         |
         | `key` is what does the work. Where a metric names no `via` of its own,

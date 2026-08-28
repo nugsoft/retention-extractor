@@ -139,8 +139,27 @@ class ClientResolver
                 externalId: (string) $row->{$externalId},
                 name: (string) ($row->{$name} ?? $row->{$externalId}),
                 key: $row->{$branches['local_key'] ?? 'id'},
+                address: $this->column($row, $branches['address'] ?? null),
+                contactPhone: $this->column($row, $branches['contact_phone'] ?? null),
+                contactEmail: $this->column($row, $branches['contact_email'] ?? null),
             ))
             ->all();
+    }
+
+    /**
+     * One optional column off a branch row.
+     *
+     * Unmapped and missing are the same answer here — a product that does not
+     * record an address, and one whose mapping does not mention it, both have
+     * nothing to send.
+     */
+    private function column(object $row, ?string $column): ?string
+    {
+        if ($column === null || ! property_exists($row, $column)) {
+            return null;
+        }
+
+        return blank($row->{$column}) ? null : (string) $row->{$column};
     }
 
     private function single(): ClientRecord

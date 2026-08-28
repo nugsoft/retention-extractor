@@ -55,6 +55,11 @@ abstract class TestCase extends Orchestra
             $table->id();
             $table->foreignId('business_id');
             $table->string('name');
+            // Where the client's details actually live, as in every product
+            // here: the parent table has a name and little else.
+            $table->string('address')->nullable();
+            $table->string('main_contact', 30)->nullable();
+            $table->string('email')->nullable();
         });
 
         Schema::create('visits', function (Blueprint $table): void {

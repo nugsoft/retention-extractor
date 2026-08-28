@@ -195,3 +195,66 @@ describe('what the payload carries', function (): void {
             ->and($branch['transactions_7d'])->toBe(0);
     });
 });
+
+/**
+ * The client's own details, which almost never live on the client's own table.
+ *
+ * `schools` holds a name and a flag; `school_branches` holds the address, the
+ * email and the phone numbers. Clinic Plus is the same shape. A profile built
+ * from the parent alone can name a school and say nothing about where it is or
+ * who answers the phone.
+ */
+describe('what a branch says about the client', function (): void {
+    beforeEach(function (): void {
+        withBranchProfile();
+    });
+
+    it('sends the address and contacts it carries', function (): void {
+        makeBranch($this->business->id, 'Kyanja', [
+            'address' => 'Plot 12, Kyanja Road, Kampala',
+            'main_contact' => '+256700111222',
+            'email' => 'kyanja@example.com',
+        ]);
+
+        $branch = app(SnapshotBuilder::class)->activityPayload(clientRecord())['branches'][0];
+
+        expect($branch['address'])->toBe('Plot 12, Kyanja Road, Kampala')
+            ->and($branch['contact_phone'])->toBe('+256700111222')
+            ->and($branch['contact_email'])->toBe('kyanja@example.com');
+    });
+
+    it('says nothing about details the branch does not carry', function (): void {
+        makeBranch($this->business->id, 'Kyanja', ['address' => 'Plot 12']);
+
+        $branch = app(SnapshotBuilder::class)->activityPayload(clientRecord())['branches'][0];
+
+        // Omitted rather than sent empty, so a blank column cannot overwrite
+        // something already on record.
+        expect($branch['address'])->toBe('Plot 12')
+            ->and($branch)->not->toHaveKey('contact_phone')
+            ->and($branch)->not->toHaveKey('contact_email');
+    });
+
+    it('sends none of it when the mapping does not name the columns', function (): void {
+        withBranches();
+
+        makeBranch($this->business->id, 'Kyanja', [
+            'address' => 'Plot 12',
+            'email' => 'kyanja@example.com',
+        ]);
+
+        $branch = app(SnapshotBuilder::class)->activityPayload(clientRecord())['branches'][0];
+
+        expect($branch)->not->toHaveKey('address')
+            ->and($branch)->not->toHaveKey('contact_email');
+    });
+
+    it('still names the branch when it has no details at all', function (): void {
+        makeBranch($this->business->id, 'Kyanja');
+
+        $branch = app(SnapshotBuilder::class)->activityPayload(clientRecord())['branches'][0];
+
+        expect($branch['name'])->toBe('Kyanja')
+            ->and($branch)->not->toHaveKey('address');
+    });
+});

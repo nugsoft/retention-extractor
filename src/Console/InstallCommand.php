@@ -511,7 +511,47 @@ class InstallCommand extends Command
                 required: true,
                 hint: 'This is what lets a table that only knows the branch be counted for the business.',
             ),
+
+            // Worth asking for, because this is usually the only place they
+            // exist: the parent table holds a name and little else, so a client
+            // profile built without these can name a school and say nothing
+            // about where it is or who answers the phone.
+            ...$this->resolveBranchProfile($schema, $table, $columns),
         ];
+    }
+
+    /**
+     * The address and contacts a branch carries, for the client's profile.
+     *
+     * Offered as a single confirm rather than three prompts nobody can skip:
+     * a product that records none of them should be able to say so once.
+     *
+     * @param  array<int, string>  $columns
+     * @return array<string, string>
+     */
+    private function resolveBranchProfile(SchemaInspector $schema, string $table, array $columns): array
+    {
+        $guesses = [
+            'address' => $schema->firstPresent($columns, ['address', 'location', 'physical_address', 'street']),
+            'contact_phone' => $schema->firstPresent($columns, ['main_contact', 'phone', 'telephone', 'contact_phone', 'mobile']),
+            'contact_email' => $schema->firstPresent($columns, ['email', 'contact_email']),
+        ];
+
+        $found = array_filter($guesses);
+
+        if ($found === []) {
+            return [];
+        }
+
+        if (! confirm(
+            label: "Send the address and contacts on '{$table}' as part of the client's profile?",
+            default: true,
+            hint: 'Found '.implode(', ', $found).'. This is usually the only place they exist.',
+        )) {
+            return [];
+        }
+
+        return $found;
     }
 
     /**

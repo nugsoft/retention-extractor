@@ -90,12 +90,25 @@ function makeSale(int $businessId, float $total, int $daysAgo = 0, int $items = 
 /**
  * A branch beneath a business, and the sale/visit rows that belong to it.
  */
-function makeBranch(int $businessId, string $name): int
+function makeBranch(int $businessId, string $name, array $profile = []): int
 {
     return DB::table('business_branches')->insertGetId([
         'business_id' => $businessId,
         'name' => $name,
+        ...$profile,
     ]);
+}
+
+/**
+ * A branch mapping that also carries the client's address and contacts.
+ */
+function withBranchProfile(): void
+{
+    withBranches();
+
+    config()->set('retention-extractor.clients.branches.address', 'address');
+    config()->set('retention-extractor.clients.branches.contact_phone', 'main_contact');
+    config()->set('retention-extractor.clients.branches.contact_email', 'email');
 }
 
 function makeBranchSale(int $businessId, int $branchId, float $total, int $daysAgo = 0): int
