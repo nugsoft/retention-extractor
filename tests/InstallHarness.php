@@ -136,6 +136,7 @@ trait InstallHarness
             ['Which column identifies each branch to Retention Intel?', 'id'],
             ['Which column holds the branch name?', 'name'],
             ['And which column do your other tables use to name a branch?', 'business_branch_id'],
+            ["Send the address and contacts on 'business_branches' as part of the client's profile?", true],
             ['Which table best represents real use of this product?', $realUse],
         ];
     }
