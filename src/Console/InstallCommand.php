@@ -338,7 +338,7 @@ class InstallCommand extends Command
             $table = select(
                 label: $metric,
                 options: ['skip', ...$tables],
-                default: $this->defaultTableFor($metric, $tables, $lastActivity['table']),
+                default: $this->defaultTableFor($metric, $tables),
                 hint: $metric === 'login_count_7d'
                     ? 'Skip this if the product keeps no record of people signing in — plenty do not.'
                     : '',
@@ -507,7 +507,7 @@ class InstallCommand extends Command
     /**
      * @param  array<int, string>  $tables
      */
-    private function defaultTableFor(string $metric, array $tables, string $activityTable): string
+    private function defaultTableFor(string $metric, array $tables): string
     {
         // Retention Intel first. Table names are knowledge about a product, and
         // it is where that knowledge is kept and corrected — no release of this
@@ -537,7 +537,18 @@ class InstallCommand extends Command
             return $ranked[0];
         }
 
-        return in_array($activityTable, $tables, true) ? $activityTable : 'skip';
+        // Nothing knows where this metric lives, so nothing is proposed.
+        //
+        // This used to fall back to whatever was picked as the table best
+        // representing real use of the product, which is a plausible guess for
+        // a transaction count and nonsense for anything else: School Monitor
+        // has no attendance table at all and was offered `exam_marks` for its
+        // attendance records, already selected. A default is accepted far more
+        // often than it is read.
+        //
+        // Skipping is recoverable and loud — Retention Intel refuses a push
+        // missing a metric it scores, and names it. A wrong table is silent.
+        return 'skip';
     }
 
     /**

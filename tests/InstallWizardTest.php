@@ -305,3 +305,45 @@ describe('a hint that says which rows count', function (): void {
         expect($this->writtenConfig()['metrics']['login_count_7d']['table'])->toBe('audit_trail');
     });
 });
+
+/**
+ * What the wizard proposes when it does not know.
+ */
+describe('a metric nothing can place', function (): void {
+    /**
+     * School Monitor has no attendance table at all, and was offered
+     * `exam_marks` for its attendance records — already selected, because the
+     * fallback proposed whatever had been named as the product's real use. A
+     * default is accepted far more often than it is read.
+     */
+    it('proposes nothing rather than an unrelated table', function (): void {
+        $this->fakeContract(required: ['attendance_records_7d', 'transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            // Answered with the default the wizard offered, which must be skip.
+            ['attendance_records_7d', 'skip'],
+            ['transactions_7d', 'sales'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        $metrics = $this->writtenConfig()['metrics'];
+
+        expect($metrics)->not->toHaveKey('attendance_records_7d')
+            ->and($metrics)->toHaveKey('transactions_7d');
+    });
+
+    it('still proposes the table Retention Intel named', function (): void {
+        $this->fakeContract(required: ['attendance_records_7d'], hints: [
+            'attendance_records_7d' => ['tables' => ['audit_trail']],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['attendance_records_7d', 'audit_trail'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['attendance_records_7d']['table'])->toBe('audit_trail');
+    });
+});
