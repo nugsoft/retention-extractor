@@ -233,6 +233,77 @@ class SchemaInspector
     }
 
     /**
+     * Where a client's branches live, if the product records them.
+     *
+     * Derived from the tenant table before anything else — a product with
+     * `schools` almost always calls them `school_branches` — because a bare
+     * `branches` table could belong to anything, and School Monitor has eight
+     * tables with "branch" in the name of which exactly one is the branches.
+     */
+    public function guessBranchTable(?string $tenantTable): ?string
+    {
+        $candidates = [];
+
+        if ($tenantTable !== null) {
+            $candidates[] = Str::singular($tenantTable).'_branches';
+            $candidates[] = Str::singular($tenantTable).'_sites';
+        }
+
+        $candidates[] = 'branches';
+
+        foreach ($candidates as $candidate) {
+            if ($this->hasTable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The column an activity row uses to name the branch it belongs to.
+     *
+     * Derived rather than searched for, and returned whether or not any given
+     * table has it: it describes the product's convention, and the caller
+     * confirms it.
+     */
+    public function guessBranchKey(string $branchTable): string
+    {
+        return Str::singular($branchTable).'_id';
+    }
+
+    /**
+     * Tables that could hold a per-client weekly figure at all, most plausible
+     * first, for the times there is nothing better to go on.
+     *
+     * Not a guess at WHICH table — it cannot be — but enough to stop the
+     * alphabet deciding. School Monitor matched none of the activity names, so
+     * the prompt for the table best representing real use of the product
+     * arrived defaulted to `academic_reporting_cycle_sets`, the first table in
+     * the database by name and a configuration table at that.
+     *
+     * @param  array<int, string>  $tables
+     * @return array<int, string>
+     */
+    public function orderByPlausibility(array $tables, ?string $tenantTable, ?string $branchKey = null): array
+    {
+        $reachable = [];
+        $rest = [];
+
+        foreach ($tables as $table) {
+            $dated = $this->guessDateColumn($table) !== null;
+
+            $reaches = $tenantTable === null
+                || $this->guessTenantKey($table, $tenantTable) !== null
+                || ($branchKey !== null && in_array($branchKey, $this->columns($table), true));
+
+            $dated && $reaches ? $reachable[] = $table : $rest[] = $table;
+        }
+
+        return [...$reachable, ...$rest];
+    }
+
+    /**
      * Orders candidate tables by how much they look like they hold this metric.
      *
      * Naming knowledge cannot be had for free — six School Monitor tables carry

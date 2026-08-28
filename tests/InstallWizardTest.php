@@ -175,6 +175,7 @@ describe('when Retention Intel cannot be reached', function (): void {
             ['Which table holds those businesses?', 'businesses'],
             ['Which column identifies each business to Retention Intel?', 'id'],
             ['Which column holds the business name?', 'business_name'],
+            ['Does a business have branches, and is that where the work is recorded?', false],
             ['Which table best represents real use of this product?', 'sales'],
             ['login_count_7d', 'sessions_log'],
             ['items_sold_7d', 'skip'],
@@ -200,6 +201,7 @@ describe('when Retention Intel cannot be reached', function (): void {
             ['Which table holds those businesses?', 'businesses'],
             ['Which column identifies each business to Retention Intel?', 'id'],
             ['Which column holds the business name?', 'business_name'],
+            ['Does a business have branches, and is that where the work is recorded?', false],
             ['Which table best represents real use of this product?', 'sales'],
             ['login_count_7d', 'sessions_log'],
             ['items_sold_7d', 'skip'],
@@ -303,5 +305,123 @@ describe('a hint that says which rows count', function (): void {
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics']['login_count_7d']['table'])->toBe('audit_trail');
+    });
+});
+
+/**
+ * What the wizard proposes when it does not know.
+ */
+describe('a metric nothing can place', function (): void {
+    /**
+     * School Monitor has no attendance table at all, and was offered
+     * `exam_marks` for its attendance records — already selected, because the
+     * fallback proposed whatever had been named as the product's real use. A
+     * default is accepted far more often than it is read.
+     */
+    it('proposes nothing rather than an unrelated table', function (): void {
+        $this->fakeContract(required: ['attendance_records_7d', 'transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            // Answered with the default the wizard offered, which must be skip.
+            ['attendance_records_7d', 'skip'],
+            ['transactions_7d', 'sales'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        $metrics = $this->writtenConfig()['metrics'];
+
+        expect($metrics)->not->toHaveKey('attendance_records_7d')
+            ->and($metrics)->toHaveKey('transactions_7d');
+    });
+
+    it('still proposes the table Retention Intel named', function (): void {
+        $this->fakeContract(required: ['attendance_records_7d'], hints: [
+            'attendance_records_7d' => ['tables' => ['audit_trail']],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['attendance_records_7d', 'audit_trail'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['attendance_records_7d']['table'])->toBe('audit_trail');
+    });
+});
+
+/**
+ * A product whose work happens at its branches.
+ *
+ * This is what a real School Monitor install looked like before the wizard
+ * asked about branches: 103 of its tables carry `school_branch_id` and 15 carry
+ * `school_id`, so almost every metric arrived as "nothing on this table looks
+ * like a link to schools" and a two-step hop to be answered by hand.
+ */
+describe('branches beneath a client', function (): void {
+    it('writes where the branches are and how a row names one', function (): void {
+        $this->fakeContract(required: ['transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyBranches(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['clients']['branches'])->toBe([
+            'table' => 'business_branches',
+            'via' => 'business_id',
+            'external_id' => 'id',
+            'name' => 'name',
+            'key' => 'business_branch_id',
+        ]);
+    });
+
+    /**
+     * The question that used to be asked over and over. A table naming the
+     * branch already reaches the client through it, so there is nothing to ask
+     * and no `via` to write.
+     */
+    it('asks nothing about a table that names only the branch', function (): void {
+        $this->fakeContract(required: ['visits_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyBranches(),
+            // `visits` has no business_id at all. Before branches, this metric
+            // demanded a warning and four more answers.
+            ['visits_7d', 'visits'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        $mapping = $this->writtenConfig()['metrics']['visits_7d'];
+
+        expect($mapping['table'])->toBe('visits')
+            ->and($mapping)->not->toHaveKey('via');
+    });
+
+    it('still names the business column where a table has one', function (): void {
+        $this->fakeContract(required: ['transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyBranches(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        // `sales` knows both, so the client total uses the direct column and
+        // the branch key only supplies the breakdown.
+        expect($this->writtenConfig()['metrics']['transactions_7d']['via'])->toBe('business_id');
+    });
+
+    it('says nothing about branches for a product that has none', function (): void {
+        $this->fakeContract(required: ['transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineSubscriptions(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['clients']['branches'])->toBeNull();
     });
 });

@@ -111,6 +111,31 @@ trait InstallHarness
             ['Which table holds those businesses?', 'businesses'],
             ['Which column identifies each business to Retention Intel?', 'id'],
             ['Which column holds the business name?', 'business_name'],
+            ['Does a business have branches, and is that where the work is recorded?', false],
+            ['Which table best represents real use of this product?', $realUse],
+        ];
+    }
+
+    /**
+     * The same preamble for a product whose work happens at its branches.
+     *
+     * @return array<int, array{0: string, 1: string|bool}>
+     */
+    protected function connectAndIdentifyBranches(string $realUse = 'sales'): array
+    {
+        return [
+            ['Where is Retention Intel?', 'https://retention.test'],
+            ['The API key issued for this product', str_repeat('a', 64)],
+            ['Does this installation serve more than one business?', true],
+            ['Which table holds those businesses?', 'businesses'],
+            ['Which column identifies each business to Retention Intel?', 'id'],
+            ['Which column holds the business name?', 'business_name'],
+            ['Does a business have branches, and is that where the work is recorded?', true],
+            ['Which table holds those branches?', 'business_branches'],
+            ["Which column on 'business_branches' says which business a branch belongs to?", 'business_id'],
+            ['Which column identifies each branch to Retention Intel?', 'id'],
+            ['Which column holds the branch name?', 'name'],
+            ['And which column do your other tables use to name a branch?', 'business_branch_id'],
             ['Which table best represents real use of this product?', $realUse],
         ];
     }

@@ -85,6 +85,38 @@ return [
         'scope' => null,
 
         /*
+        |----------------------------------------------------------------------
+        | Branches beneath each client
+        |----------------------------------------------------------------------
+        |
+        | Leave null unless your product records branches. Most do: a school has
+        | campuses, a facility has sites, and the day-to-day records hang off
+        | the branch rather than the business — 103 of School Monitor's tables
+        | carry `school_branch_id` and 15 carry `school_id`.
+        |
+        |     'branches' => [
+        |         'table' => 'school_branches',   // where the branches live
+        |         'via' => 'school_id',           // branch row -> its client
+        |         'external_id' => 'id',          // stable, like the client's
+        |         'name' => 'name',
+        |         'key' => 'school_branch_id',    // activity row -> its branch
+        |     ],
+        |
+        | `key` is what does the work. Where a metric names no `via` of its own,
+        | the client's figure becomes every one of its branches — which is how a
+        | table that only knows the branch is counted for the business. And each
+        | branch's own share is the same query narrowed to that one branch.
+        |
+        | A branch is never scored. Retention Intel keeps one health score and
+        | one watchlist entry per business, whichever level your product
+        | happens to bill; the breakdown is what somebody reads when that score
+        | falls and they need to know which branch stopped.
+        |
+        */
+
+        'branches' => null,
+
+        /*
         | Used only when `model` is null.
         */
 
