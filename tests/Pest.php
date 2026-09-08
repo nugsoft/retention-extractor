@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Nugsoft\RetentionExtractor\Tests\Fixtures\Business;
 use Nugsoft\RetentionExtractor\Tests\TestCase;
 
@@ -147,4 +148,33 @@ function withBranches(): void
         'name' => 'name',
         'key' => 'business_branch_id',
     ]);
+}
+
+/**
+ * Posts a raw body to the licence webhook, so the signature is checked against
+ * exactly the bytes a real delivery would carry.
+ */
+function postLicence(string $body, ?string $signature): TestResponse
+{
+    // CONTENT_TYPE carries no HTTP_ prefix — it is special-cased by PHP, and
+    // with the prefix Laravel never recognises the body as JSON and parses
+    // nothing at all.
+    $server = [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_ACCEPT' => 'application/json',
+    ];
+
+    if ($signature !== null) {
+        $server['HTTP_X_NUGSOFT_SIGNATURE'] = $signature;
+    }
+
+    return test()->call(
+        'POST',
+        (string) config('retention-extractor.licence.route'),
+        [],
+        [],
+        [],
+        $server,
+        $body,
+    );
 }

@@ -22,8 +22,11 @@ describe('reading the schema', function (): void {
     it('says whether a table is one this product actually has', function (): void {
         $inspector = app(SchemaInspector::class);
 
+        // A name nothing will ever add. This used to be 'facilities', which
+        // stopped being absent the moment the harness grew a Clinic Plus
+        // -shaped table for the licence tests.
         expect($inspector->hasTable('sales'))->toBeTrue()
-            ->and($inspector->hasTable('facilities'))->toBeFalse();
+            ->and($inspector->hasTable('no_such_table'))->toBeFalse();
     });
 
     /**
