@@ -225,6 +225,83 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Licences (optional)
+    |--------------------------------------------------------------------------
+    |
+    | Retention Intel is the master for whether a client may work. Fill this in
+    | and it will tell this product when somebody is switched on or off —
+    | pushed the moment it happens, and asked for again on a schedule so a
+    | missed message does not leave a suspended client working.
+    |
+    | Leave `table` null and nothing is received: the endpoint answers 503 and
+    | the scheduled pull does not run.
+    |
+    |   'table'  the table holding licence state
+    |   'via'    how a row there is linked to the client it belongs to, either
+    |            a column on that table or the same two-step path the metrics
+    |            use for a table that only knows something beneath the client
+    |
+    | Then ONE of these, depending on how this product says "may they work":
+    |
+    |   'status'   a word in a column. Clinic Plus keeps `facilities.status`:
+    |
+    |       'table'  => 'facilities',
+    |       'via'    => 'id',
+    |       'status' => ['column' => 'status', 'granted' => 'Active', 'revoked' => 'Suspend'],
+    |
+    |   'ceiling'  a date that caps access. School Monitor has no status at
+    |              all — access is derived from dates, and `license_expires_at`
+    |              is an administrative ceiling on them:
+    |
+    |       'table'   => 'branch_subscriptions',
+    |       'via'     => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    |       'ceiling' => ['column' => 'license_expires_at'],
+    |
+    | The ceiling is set to yesterday to revoke and cleared to grant, so the
+    | product's own paid term governs again. That is deliberate: a mistake here
+    | can only ever shorten access, never hand somebody time they have not paid
+    | for.
+    |
+    | A licence covers the whole client. Where the rows are per branch, every
+    | branch of that client is written — a client is either on or off, never
+    | half.
+    |
+    */
+
+    'licence' => [
+
+        'table' => null,
+        'via' => null,
+        'primary_key' => 'id',
+
+        'status' => null,
+        'ceiling' => null,
+
+        /*
+        | Signs every licence message. Issued with the product's API key and
+        | set on both sides; without it nothing is received, because an
+        | endpoint that switches clients off must not take anybody's word for
+        | who is calling.
+        */
+        'secret' => env('RETENTION_LICENCE_SECRET'),
+
+        /*
+        | Where this product listens. Change it if the default collides with
+        | something you already serve.
+        */
+        'route' => env('RETENTION_LICENCE_ROUTE', 'api/retention/licence'),
+
+        /*
+        | How often to ask for the current state anyway. Hourly is the point:
+        | it is the ceiling on how long a missed message can leave a client
+        | working after they were switched off. Set to null to schedule it
+        | yourself.
+        */
+        'pull_at' => env('RETENTION_LICENCE_PULL', 'hourly'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Schedule
     |--------------------------------------------------------------------------
     |
