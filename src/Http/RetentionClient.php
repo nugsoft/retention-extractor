@@ -37,6 +37,30 @@ class RetentionClient
         return $this->post('/api/v1/subscription', $payload);
     }
 
+    /**
+     * What this product's licences currently say.
+     *
+     * The authoritative answer, asked for rather than waited for. Pass an
+     * external id to ask about one client, which is the form used on login.
+     *
+     * @return array{product?: string, as_of?: string, licences?: array<int, array<string, mixed>>}
+     */
+    public function licences(?string $externalId = null): array
+    {
+        $endpoint = '/api/v1/licence'.($externalId === null ? '' : '?external_id='.urlencode($externalId));
+
+        $response = $this->request()->get($this->url($endpoint));
+
+        if ($response->failed()) {
+            throw PushFailedException::fromResponse($endpoint, $response->status(), $response->body());
+        }
+
+        /** @var array{product?: string, as_of?: string, licences?: array<int, array<string, mixed>>} $body */
+        $body = $response->json() ?? [];
+
+        return $body;
+    }
+
     public function isReachable(): bool
     {
         try {

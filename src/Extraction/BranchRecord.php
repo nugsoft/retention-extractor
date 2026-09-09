@@ -19,6 +19,17 @@ final readonly class BranchRecord
         public string $name,
         /** The branch's primary key, used to scope its share of each metric. */
         public int|string $key,
+        /*
+         * Where and how to reach it.
+         *
+         * Usually the only place these exist. `schools` holds a name and a
+         * flag; `school_branches` holds the address, the email and the phone
+         * numbers — so a client profile built from the parent alone can name a
+         * school and say nothing about where it is.
+         */
+        public ?string $address = null,
+        public ?string $contactPhone = null,
+        public ?string $contactEmail = null,
     ) {}
 
     /**
@@ -26,9 +37,12 @@ final readonly class BranchRecord
      */
     public function toPayload(): array
     {
-        return [
+        return array_filter([
             'external_id' => $this->externalId,
             'name' => $this->name,
-        ];
+            'address' => $this->address,
+            'contact_phone' => $this->contactPhone,
+            'contact_email' => $this->contactEmail,
+        ], fn (?string $value): bool => $value !== null);
     }
 }

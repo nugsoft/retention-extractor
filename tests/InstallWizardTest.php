@@ -374,6 +374,10 @@ describe('branches beneath a client', function (): void {
             'external_id' => 'id',
             'name' => 'name',
             'key' => 'business_branch_id',
+            // The client's address and contacts, which live nowhere else.
+            'address' => 'address',
+            'contact_phone' => 'main_contact',
+            'contact_email' => 'email',
         ]);
     });
 

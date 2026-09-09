@@ -1,6 +1,6 @@
 {
     "name": "nugsoft/retention-extractor",
-    "description": "Pushes client activity and subscription data from a Laravel product into Retention Intel.",
+    "description": "Pushes client activity and subscription data from a Laravel product into Retention Intel, and applies the licence decisions it sends back.",
     "keywords": ["laravel", "retention", "churn", "nugsoft"],
     "license": "MIT",
     "type": "library",

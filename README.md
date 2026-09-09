@@ -126,6 +126,58 @@ never reporting them would hide exactly the clients most at risk.
 
 Leave it `null` and no subscription data is pushed.
 
+### Licences (optional)
+
+Everything above pushes data *out*. This is the one thing that comes back:
+Retention Intel is the master for whether a client may work, and it tells this
+product when somebody is switched on or off.
+
+Fill it in and two things happen — a signed webhook the moment a licence
+changes, and an hourly `retention:sync-licence` that asks for the current state
+anyway, so a message nobody received does not leave a suspended client working.
+
+Say where licence state lives, how to reach the client it belongs to, and how
+**this** product expresses "may they work". That last part is the whole reason
+this is configuration and not code: no two products say it the same way.
+
+**A word in a column** — Clinic Plus keeps it on the facility:
+
+```php
+'licence' => [
+    'table'  => 'facilities',
+    'via'    => 'id',
+    'status' => ['column' => 'status', 'granted' => 'Active', 'revoked' => 'Suspend'],
+],
+```
+
+**A date that caps access** — School Monitor has no status at all; access is
+derived from dates, and `license_expires_at` is an administrative ceiling on
+them. The rows are per branch, reached through the branch table:
+
+```php
+'licence' => [
+    'table'   => 'branch_subscriptions',
+    'via'     => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    'ceiling' => ['column' => 'license_expires_at'],
+],
+```
+
+The ceiling is set to yesterday to revoke and **cleared** to grant, so your own
+paid term governs again. That is deliberate: a mistake here can only ever
+shorten access, never hand somebody time they have not paid for.
+
+A licence covers the whole client, so where the rows are per branch every
+branch of that client is written. A client is either on or off, never half.
+
+Set `RETENTION_LICENCE_SECRET` to the value issued with your API key. Without
+it nothing is received — an endpoint that switches clients off must not take
+anybody's word for who is calling. Leave `table` null and no route is mounted
+at all.
+
+The package ships a migration for `retention_licences`, which records the last
+version applied here. That is what lets a webhook arriving after a newer one be
+dropped rather than applied.
+
 ### Counting logins, wherever your product keeps them
 
 Almost no two products record a login in the same place, so three keys exist
@@ -189,6 +241,9 @@ Anything else you send is kept in `raw_payload` but not scored.
 | `retention:push` | Push every client |
 | `retention:push --dry-run` | Print the payloads, send nothing |
 | `retention:push --client=ID` | Push one client, for testing |
+| `retention:sync-licence` | Fetch current licences and apply them |
+| `retention:sync-licence --dry-run` | Report what would change, write nothing |
+| `retention:sync-licence --client=ID` | Sync one client |
 
 ## Notes
 

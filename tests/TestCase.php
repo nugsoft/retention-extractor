@@ -31,6 +31,13 @@ abstract class TestCase extends Orchestra
         $app['config']->set('retention-extractor.api.url', 'https://retention.test');
         $app['config']->set('retention-extractor.api.key', str_repeat('a', 64));
         $app['config']->set('retention-extractor.product', 'poscream');
+
+        // The webhook route is mounted only for a product that has opted in,
+        // and that decision is read at boot — so it has to be made here rather
+        // than inside a test. Each test then describes the mapping it needs.
+        $app['config']->set('retention-extractor.licence.table', 'facilities');
+        $app['config']->set('retention-extractor.licence.secret', 'a-signing-key');
+        $app['config']->set('retention-extractor.licence.route', 'api/retention/licence');
     }
 
     /**
@@ -55,6 +62,11 @@ abstract class TestCase extends Orchestra
             $table->id();
             $table->foreignId('business_id');
             $table->string('name');
+            // Where the client's details actually live, as in every product
+            // here: the parent table has a name and little else.
+            $table->string('address')->nullable();
+            $table->string('main_contact', 30)->nullable();
+            $table->string('email')->nullable();
         });
 
         Schema::create('visits', function (Blueprint $table): void {
@@ -84,6 +96,23 @@ abstract class TestCase extends Orchestra
             $table->timestamps();
         });
 
+        // The two shapes a product keeps licence state in. `facilities` is
+        // Clinic Plus: one row per client, access as a word. `branch_licences`
+        // is School Monitor: one row per branch, access derived from a date
+        // that an administrator can cap.
+        Schema::create('facilities', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->enum('status', ['Active', 'Suspend'])->default('Active');
+        });
+
+        Schema::create('branch_licences', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('business_branch_id');
+            $table->date('end_date')->nullable();
+            $table->date('license_expires_at')->nullable();
+        });
+
         Schema::create('subscriptions', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('business_id');
@@ -108,6 +137,10 @@ abstract class TestCase extends Orchestra
             $table->foreignId('business_id');
             $table->string('name');
         });
+
+        // The package's own migration, run rather than reproduced here, so the
+        // table products will actually get is the one under test.
+        $this->artisan('migrate', ['--database' => 'testing'])->run();
 
         // One table holding every kind of event — the shape School Monitor
         // keeps its audit trail in, where counting logins means naming which
