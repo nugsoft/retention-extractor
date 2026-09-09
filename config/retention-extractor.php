@@ -264,7 +264,20 @@ return [
     |
     | A licence covers the whole client. Where the rows are per branch, every
     | branch of that client is written — a client is either on or off, never
-    | half.
+    | half — and every term on each branch, including one queued to start
+    | later. Products create a row per renewal rather than editing the old one,
+    | so a branch accumulates them; a suspension that left the queued renewal
+    | uncapped would switch the client back on by itself the day it began.
+    |
+    | Two things follow from that, and both are deliberate:
+    |
+    | Retention Intel is the master for access, so clearing a ceiling clears
+    | EVERY ceiling on that client — including one an administrator set in this
+    | product for a reason of their own. If that matters here, give this sync a
+    | column of its own rather than sharing one.
+    |
+    | And a ceiling on an already-ended term is written too. It changes nothing
+    | — the term is over either way — but it will show in an audit trail.
     |
     */
 

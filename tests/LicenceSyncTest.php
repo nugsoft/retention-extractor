@@ -273,3 +273,55 @@ describe('asking for the current state', function (): void {
         test()->artisan('retention:sync-licence')->assertFailed();
     });
 });
+
+describe('a branch that has renewed more than once', function (): void {
+    beforeEach(function (): void {
+        withCeilingLicence();
+
+        $business = makeBusiness();
+        $this->businessId = $business->id;
+        $branchId = makeBranch($business->id, 'Main');
+
+        // What a renewing product accumulates: a term that has ended, the one
+        // running now, and one queued to start when it finishes. School
+        // Monitor creates a row per renewal rather than editing the old one,
+        // and Clinic Plus does the same — reading only one of these is how a
+        // paid-up client gets switched off.
+        DB::table('branch_licences')->insert([
+            ['business_branch_id' => $branchId, 'end_date' => now()->subYear()->toDateString(), 'license_expires_at' => null],
+            ['business_branch_id' => $branchId, 'end_date' => now()->addMonths(3)->toDateString(), 'license_expires_at' => null],
+            ['business_branch_id' => $branchId, 'end_date' => now()->addMonths(15)->toDateString(), 'license_expires_at' => null],
+        ]);
+    });
+
+    it('caps every term, including the one queued to start later', function (): void {
+        // A suspension that left the queued renewal uncapped would switch the
+        // client back on by itself the day the new term began.
+        applier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => (string) $this->businessId,
+            'grants_access' => false,
+        ])));
+
+        $uncapped = DB::table('branch_licences')->whereNull('license_expires_at')->count();
+
+        expect(DB::table('branch_licences')->count())->toBe(3)
+            ->and($uncapped)->toBe(0);
+    });
+
+    it('clears every cap on the way back, so the queue resumes', function (): void {
+        applier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => (string) $this->businessId,
+            'grants_access' => false,
+        ])));
+
+        applier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => (string) $this->businessId,
+            'grants_access' => true,
+            'licence_version' => 2,
+        ])));
+
+        expect(DB::table('branch_licences')->whereNotNull('license_expires_at')->count())->toBe(0)
+            ->and(DB::table('branch_licences')->orderByDesc('end_date')->value('end_date'))
+            ->toStartWith(now()->addMonths(15)->toDateString());
+    });
+});
