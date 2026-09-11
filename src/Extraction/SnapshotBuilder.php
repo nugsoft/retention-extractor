@@ -7,6 +7,7 @@ namespace Nugsoft\RetentionExtractor\Extraction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
+use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
 
 /**
  * Turns a client plus its aggregates into the exact payloads the ingestion
@@ -120,8 +121,34 @@ class SnapshotBuilder
             'product' => $this->product,
             'start_date' => substr((string) $start, 0, 10),
             'end_date' => substr((string) $end, 0, 10),
-            'status' => $this->mapStatus($row->{$mapping['status'] ?? 'status'} ?? null, $mapping, (string) $end),
+            'status' => $this->reportedStatus($client, $row, $mapping, (string) $end),
         ];
+    }
+
+    /**
+     * What this product should say about the client's licence.
+     *
+     * Where a `licence` mapping exists, whether they can work is read back
+     * through it rather than guessed from the subscription dates. Those are two
+     * different facts and in at least one product they live in two different
+     * tables: a facility suspended centrally still has a subscription running
+     * to next year, and reporting that as "active" made every suspension look
+     * like the two systems disagreeing when they agreed perfectly.
+     *
+     * Falls back to the date-derived status when nothing can be read, which is
+     * every product that has not configured a licence mapping.
+     *
+     * @param  array<string, mixed>  $mapping
+     */
+    private function reportedStatus(ClientRecord $client, object $row, array $mapping, string $end): string
+    {
+        $applier = app(LicenceApplier::class);
+
+        if ($applier->isConfigured() && $applier->grantsAccess($client->externalId) === false) {
+            return 'suspended';
+        }
+
+        return $this->mapStatus($row->{$mapping['status'] ?? 'status'} ?? null, $mapping, $end);
     }
 
     /**
