@@ -95,11 +95,37 @@ class RetentionExtractorServiceProvider extends ServiceProvider
      */
     private function registerLicenceRoute(): void
     {
-        if (blank(config('retention-extractor.licence.table'))) {
+        if (! $this->wantsLicenceSync()) {
             return;
         }
 
         $this->loadRoutesFrom(__DIR__.'/../routes/licence.php');
+    }
+
+    /**
+     * Whether this product takes licence decisions at all.
+     *
+     * A local mapping answers this by being filled in. A remote one cannot:
+     * the mapping arrives over the network at run time, and finding out here
+     * would mean an HTTP call inside every boot — including the boot of the
+     * request carrying the licence being asked about.
+     *
+     * So naming a remote source is the declaration of intent, and that is
+     * enough. The route can be mounted and the pull scheduled without knowing
+     * the mapping yet, because the endpoint already refuses with 503 when it
+     * turns out there is none, and a refusal is retried.
+     *
+     * Getting this wrong is quiet in the worst way: no route means every
+     * delivery is a 404, and 404 is not retried. The panel would show the
+     * failure, but only after the client had already carried on working.
+     */
+    private function wantsLicenceSync(): bool
+    {
+        if (config('retention-extractor.mapping_source') === 'remote') {
+            return true;
+        }
+
+        return filled(config('retention-extractor.licence.table'));
     }
 
     /**
@@ -110,7 +136,7 @@ class RetentionExtractorServiceProvider extends ServiceProvider
     {
         $frequency = config('retention-extractor.licence.pull_at');
 
-        if (blank($frequency) || blank(config('retention-extractor.licence.table'))) {
+        if (blank($frequency) || ! $this->wantsLicenceSync()) {
             return;
         }
 
