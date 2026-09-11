@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Nugsoft\RetentionExtractor\Http\RetentionClient;
 use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
 use Nugsoft\RetentionExtractor\Licensing\LicenceState;
+use Nugsoft\RetentionExtractor\Support\ProductMapping;
 use Throwable;
 
 /**
@@ -31,7 +32,7 @@ class SyncLicenceCommand extends Command
 
     protected $description = 'Fetch current licences from Retention Intel and apply them here';
 
-    public function handle(RetentionClient $api, LicenceApplier $applier): int
+    public function handle(RetentionClient $api, ProductMapping $mapping): int
     {
         if (! config('retention-extractor.enabled', true)) {
             $this->components->warn('Retention extractor is disabled. Set RETENTION_ENABLED=true to turn it on.');
@@ -39,8 +40,20 @@ class SyncLicenceCommand extends Command
             return self::SUCCESS;
         }
 
+        // This command already asks for the current state rather than carrying
+        // one, so it is the right place to ask where that state lives too. It
+        // is also the lever: a mapping corrected centrally is live on the next
+        // pull instead of whenever the cache happens to lapse.
+        if ($mapping->isRemote()) {
+            $mapping->forget();
+        }
+
+        $applier = app(LicenceApplier::class);
+
         if (! $applier->isConfigured()) {
-            $this->components->error('Licence sync is not configured. Fill in the `licence` block in config/retention-extractor.php.');
+            $mapping->isRemote()
+                ? $this->components->error('Retention Intel has no licence mapping for this product, or could not be reached.')
+                : $this->components->error('Licence sync is not configured. Fill in the `licence` block in config/retention-extractor.php.');
 
             return self::FAILURE;
         }

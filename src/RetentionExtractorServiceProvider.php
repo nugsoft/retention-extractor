@@ -15,6 +15,7 @@ use Nugsoft\RetentionExtractor\Extraction\MetricCollector;
 use Nugsoft\RetentionExtractor\Extraction\SnapshotBuilder;
 use Nugsoft\RetentionExtractor\Http\RetentionClient;
 use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
+use Nugsoft\RetentionExtractor\Support\ProductMapping;
 use Nugsoft\RetentionExtractor\Support\SchemaInspector;
 
 class RetentionExtractorServiceProvider extends ServiceProvider
@@ -43,8 +44,15 @@ class RetentionExtractorServiceProvider extends ServiceProvider
 
         $this->app->bind(SchemaInspector::class, fn (): SchemaInspector => new SchemaInspector);
 
-        $this->app->bind(LicenceApplier::class, fn (): LicenceApplier => new LicenceApplier(
-            config('retention-extractor.licence', []),
+        $this->app->bind(ProductMapping::class, fn ($app): ProductMapping => new ProductMapping(
+            $app->make(RetentionClient::class),
+        ));
+
+        // Resolved through the mapping rather than straight from config, so an
+        // install told to ask Retention Intel where things live gets the same
+        // applier as one that was configured by hand.
+        $this->app->bind(LicenceApplier::class, fn ($app): LicenceApplier => new LicenceApplier(
+            $app->make(ProductMapping::class)->licence(),
         ));
     }
 

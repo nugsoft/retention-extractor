@@ -105,6 +105,31 @@ class RetentionClient
     }
 
     /**
+     * Where this product keeps its subscriptions and its licence.
+     *
+     * Deliberately small and deliberately dull: it is read on the path that
+     * applies a licence, so it carries no scoring data and nothing that would
+     * grow.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws PushFailedException
+     */
+    public function mapping(): array
+    {
+        $response = $this->request()->get($this->url('/api/v1/mapping'));
+
+        if ($response->failed()) {
+            throw PushFailedException::fromResponse('/api/v1/mapping', $response->status(), $response->body());
+        }
+
+        /** @var array<string, mixed> $mapping */
+        $mapping = $response->json() ?? [];
+
+        return $mapping;
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */

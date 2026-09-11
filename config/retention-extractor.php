@@ -50,6 +50,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Where the mappings below come from
+    |--------------------------------------------------------------------------
+    |
+    | 'local'   this file. Right wherever the team running this product owns
+    |           the integration: the mapping sits in their repository, changes
+    |           go through their review, and nothing outside can move it.
+    |
+    | 'remote'  ask Retention Intel, and use `subscription` and `licence` from
+    |           the answer instead of the ones written below.
+    |
+    | The second exists for a product that cannot take a change — a team with
+    | its own roadmap, an install nobody there can deploy to. The package goes
+    | in once and everything after that is answerable from the other side.
+    |
+    | It is opted into and never inferred: a product silently taking
+    | instructions about which table to write from the network is not something
+    | anybody should get by accident.
+    |
+    | Secrets never travel either way. The signing secret and the route stay in
+    | this environment and are merged over the answer, so it can say where
+    | things are without being able to say who may change them.
+    |
+    | A failure is never a guess. The last good answer is kept and used; with
+    | no answer at all nothing is reported as mapped, and the licence endpoint
+    | says 503 and is retried rather than writing against a table it is no
+    | longer sure about.
+    |
+    */
+
+    'mapping_source' => env('RETENTION_MAPPING_SOURCE', 'local'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Who your clients are
     |--------------------------------------------------------------------------
     |

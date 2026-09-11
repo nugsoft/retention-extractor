@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
+use Nugsoft\RetentionExtractor\Support\ProductMapping;
 
 /**
  * Turns a client plus its aggregates into the exact payloads the ingestion
@@ -80,7 +81,7 @@ class SnapshotBuilder
      */
     public function subscriptionPayload(ClientRecord $client): ?array
     {
-        $mapping = config('retention-extractor.subscription');
+        $mapping = app(ProductMapping::class)->subscription();
 
         if (! is_array($mapping) || blank($mapping['table'] ?? null)) {
             return null;
