@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nugsoft\RetentionExtractor\Licensing;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
@@ -179,7 +180,7 @@ class LicenceApplier
         $key = $this->primaryKey();
 
         if (is_string($via)) {
-            return DB::table($table)->where($via, $externalId)->pluck($key)->all();
+            return $this->only(DB::table($table)->where($via, $externalId))->pluck($key)->all();
         }
 
         /** @var array<string, array<int, string>> $via */
@@ -192,7 +193,39 @@ class LicenceApplier
             return [];
         }
 
-        return DB::table($table)->whereIn($localColumn, $parentIds)->pluck($key)->all();
+        return $this->only(DB::table($table)->whereIn($localColumn, $parentIds))->pluck($key)->all();
+    }
+
+    /**
+     * Narrow to the rows this product would itself count.
+     *
+     * Queries here go through the query builder rather than the product's own
+     * models, so nothing a model would apply for free is applied — a global
+     * scope, and soft deletes above all. A row the product has deleted is one
+     * it never reads, and both halves of this class then get it wrong: `apply`
+     * writes to a row nobody looks at, and `grantsAccess` reads one back and
+     * reports a restriction that is not being enforced. That second one is
+     * worse, because it shows on the register as a disagreement that no amount
+     * of re-sending will clear.
+     *
+     * Declared rather than guessed. `where` is a plain column => value map, a
+     * null value meaning IS NULL, which is what `deleted_at` wants.
+     */
+    private function only(Builder $query): Builder
+    {
+        $where = $this->config['where'] ?? null;
+
+        if (! is_array($where)) {
+            return $query;
+        }
+
+        foreach ($where as $column => $value) {
+            $value === null
+                ? $query->whereNull((string) $column)
+                : $query->where((string) $column, $value);
+        }
+
+        return $query;
     }
 
     private function primaryKey(): string

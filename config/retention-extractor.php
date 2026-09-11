@@ -266,6 +266,15 @@ return [
     | branch of that client is written — a client is either on or off, never
     | half.
     |
+    | 'where' narrows to the rows this product would itself count. Queries here
+    | do not go through your models, so nothing a model applies for free is
+    | applied — soft deletes above all. Leaving a deleted row in makes this
+    | package report a restriction nobody is enforcing, which shows up as a
+    | disagreement that re-sending will never clear. A column => value map; a
+    | null value means IS NULL:
+    |
+    |       'where' => ['deleted_at' => null],
+    |
     */
 
     'licence' => [
@@ -276,6 +285,8 @@ return [
 
         'status' => null,
         'ceiling' => null,
+
+        'where' => null,
 
         /*
         | Signs every licence message. Issued with the product's API key and

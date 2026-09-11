@@ -111,6 +111,10 @@ abstract class TestCase extends Orchestra
             $table->foreignId('business_branch_id');
             $table->date('end_date')->nullable();
             $table->date('license_expires_at')->nullable();
+
+            // School Monitor soft-deletes these, and this package queries them
+            // without a model, so it sees rows the product itself never reads.
+            $table->softDeletes();
         });
 
         Schema::create('subscriptions', function (Blueprint $table): void {

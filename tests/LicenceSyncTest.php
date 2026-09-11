@@ -35,6 +35,7 @@ function withCeilingLicence(): void
         'primary_key' => 'id',
         'status' => null,
         'ceiling' => ['column' => 'license_expires_at'],
+        'where' => ['deleted_at' => null],
         'secret' => 'a-signing-key',
         'route' => 'api/retention/licence',
     ]);
@@ -394,6 +395,36 @@ describe('reading back a capped term', function (): void {
 
     it('says they may work while no branch is capped', function (): void {
         expect(applier()->grantsAccess($this->businessId))->toBeTrue();
+    });
+
+    it('ignores a row the product has deleted', function (): void {
+        // Soft-deleted, so the product never reads it. Counting its stale cap
+        // would report a restriction nobody is enforcing — a disagreement on
+        // the register that no amount of re-sending could clear.
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => makeBranch((int) $this->businessId, 'Closed campus'),
+            'end_date' => now()->subYear()->toDateString(),
+            'license_expires_at' => now()->subMonths(6)->toDateString(),
+            'deleted_at' => now(),
+        ]);
+
+        expect(applier()->grantsAccess($this->businessId))->toBeTrue();
+    });
+
+    it('does not write to a row the product has deleted', function (): void {
+        $deletedId = DB::table('branch_licences')->insertGetId([
+            'business_branch_id' => makeBranch((int) $this->businessId, 'Closed campus'),
+            'end_date' => now()->subYear()->toDateString(),
+            'license_expires_at' => null,
+            'deleted_at' => now(),
+        ]);
+
+        applier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => $this->businessId,
+            'grants_access' => false,
+        ])));
+
+        expect(DB::table('branch_licences')->where('id', $deletedId)->value('license_expires_at'))->toBeNull();
     });
 
     it('says they may not when the cap has been applied', function (): void {
