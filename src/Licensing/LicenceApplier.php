@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nugsoft\RetentionExtractor\Licensing;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
@@ -56,6 +57,58 @@ class LicenceApplier
         $this->rememberApplied($licence);
 
         return $changed;
+    }
+
+    /**
+     * Whether this product currently lets that client work.
+     *
+     * Read back through the same mapping used to write, which is the point: a
+     * product that reports its subscription DATES is not reporting whether
+     * somebody can log in. Clinic Plus keeps the answer on the facility and the
+     * dates on a different table entirely, so a suspended client was being
+     * reported as active — and every suspension looked like a disagreement
+     * between the two systems when they agreed perfectly.
+     *
+     * Null when licence state cannot be read, so a caller can tell "no" from
+     * "no idea" rather than guessing on the client's behalf.
+     */
+    public function grantsAccess(string $externalId): ?bool
+    {
+        if (! $this->isConfigured() || blank($this->config['via'] ?? null)) {
+            return null;
+        }
+
+        $ids = $this->rowIdsFor($externalId);
+
+        if ($ids === []) {
+            return null;
+        }
+
+        $rows = DB::table((string) $this->config['table'])
+            ->whereIn($this->primaryKey(), $ids)
+            ->get();
+
+        $status = $this->config['status'] ?? null;
+
+        if (is_array($status)) {
+            $column = (string) $status['column'];
+
+            // Every row has to grant it. A client is on or off, never half —
+            // the same rule the write side follows when it fans out.
+            return $rows->every(fn ($row): bool => ($row->{$column} ?? null) == $status['granted']);
+        }
+
+        /** @var array<string, mixed> $ceiling */
+        $ceiling = $this->config['ceiling'];
+        $column = (string) $ceiling['column'];
+        $today = now()->startOfDay();
+
+        return $rows->every(function ($row) use ($column, $today): bool {
+            $capped = $row->{$column} ?? null;
+
+            // No cap at all means nothing is holding this client back.
+            return $capped === null || Carbon::parse((string) $capped)->startOfDay()->gte($today);
+        });
     }
 
     /**
