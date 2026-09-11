@@ -212,6 +212,29 @@ describe('the webhook', function (): void {
         postLicence($tampered, $signature)->assertUnauthorized();
     });
 
+    it('reports back what it now believes, read out of its own tables', function (): void {
+        $body = (string) json_encode(licencePayload(['grants_access' => false]));
+
+        postLicence($body, hash_hmac('sha256', $body, 'a-signing-key'))
+            ->assertSuccessful()
+            ->assertJsonPath('grants_access', false);
+
+        $body = (string) json_encode(licencePayload(['licence_version' => 2, 'grants_access' => true]));
+
+        postLicence($body, hash_hmac('sha256', $body, 'a-signing-key'))
+            ->assertSuccessful()
+            ->assertJsonPath('grants_access', true);
+    });
+
+    it('reports no belief about a client it does not have', function (): void {
+        $body = (string) json_encode(licencePayload(['external_id' => '404', 'grants_access' => false]));
+
+        postLicence($body, hash_hmac('sha256', $body, 'a-signing-key'))
+            ->assertSuccessful()
+            ->assertJsonPath('rows_changed', 0)
+            ->assertJsonPath('grants_access', null);
+    });
+
     it('acknowledges a stale delivery rather than asking to be retried', function (): void {
         applier()->apply(LicenceState::fromPayload(licencePayload(['licence_version' => 9, 'grants_access' => false])));
 
@@ -219,7 +242,10 @@ describe('the webhook', function (): void {
 
         postLicence($body, hash_hmac('sha256', $body, 'a-signing-key'))
             ->assertSuccessful()
-            ->assertJsonPath('applied', false);
+            ->assertJsonPath('applied', false)
+            // Refused, and still says what it holds. The sender is provably
+            // behind here, so this is the reading it most needs.
+            ->assertJsonPath('grants_access', false);
 
         // The newer suspension stands.
         expect(DB::table('facilities')->where('id', 1)->value('status'))->toBe('Suspend');
