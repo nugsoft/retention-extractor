@@ -219,6 +219,22 @@ return [
     | Leave null and no subscription data is pushed. `status_map` translates
     | your product's wording into Retention Intel's: active, expired, cancelled.
     |
+    | The row reported is whichever ends last, so two keys matter where a
+    | product keeps more than one:
+    |
+    |   'via'    a column on the subscription table, or the same two-step path
+    |            the metrics use where the table only knows something beneath
+    |            the client. School Monitor bills per branch, and a branch row
+    |            is what names the school:
+    |
+    |                'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    |
+    |   'where'  drops rows the product would not read itself. This query does
+    |            not go through your models, so a soft-deleted future term
+    |            would otherwise be reported as the current one:
+    |
+    |                'where' => ['deleted_at' => null],
+    |
     */
 
     'subscription' => null,

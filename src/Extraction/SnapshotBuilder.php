@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nugsoft\RetentionExtractor\Extraction;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
@@ -100,8 +101,10 @@ class SnapshotBuilder
                 );
             }
 
-            $query->where($mapping['via'], $client->key);
+            $this->scopeToClient($query, $mapping['via'], $client);
         }
+
+        $this->applyWhere($query, $mapping['where'] ?? null);
 
         $row = $query->orderByDesc($mapping['end'] ?? 'ends_at')->first();
 
@@ -123,6 +126,52 @@ class SnapshotBuilder
             'end_date' => substr((string) $end, 0, 10),
             'status' => $this->reportedStatus($client, $row, $mapping, (string) $end),
         ];
+    }
+
+    /**
+     * Narrow subscriptions to the one client.
+     *
+     * `via` is a column on the subscription table, or the two-step path used
+     * everywhere else in this config for a table that only knows something
+     * beneath the client. School Monitor bills per branch: a subscription row
+     * names its branch and the branch names the school, so there is no column
+     * here that reaches a client directly.
+     *
+     * @param  array<string, array<int, string>>|string  $via
+     */
+    private function scopeToClient(Builder $query, array|string $via, ClientRecord $client): void
+    {
+        if (is_string($via)) {
+            $query->where($via, $client->key);
+
+            return;
+        }
+
+        $localColumn = (string) array_key_first($via);
+        [$parentTable, $parentKey, $parentVia] = $via[$localColumn];
+
+        $query->whereIn(
+            $localColumn,
+            DB::table($parentTable)->where($parentVia, $client->key)->select($parentKey),
+        );
+    }
+
+    /**
+     * Drop the rows this product would not read itself.
+     *
+     * This query does not go through the product's models, so a soft-deleted
+     * row is still a candidate — and since the row reported is whichever ends
+     * last, a deleted future term would be reported as the current one.
+     *
+     * @param  array<string, mixed>|null  $where
+     */
+    private function applyWhere(Builder $query, ?array $where): void
+    {
+        foreach ($where ?? [] as $column => $value) {
+            $value === null
+                ? $query->whereNull((string) $column)
+                : $query->where((string) $column, $value);
+        }
     }
 
     /**

@@ -214,6 +214,88 @@ describe('the subscription payload', function (): void {
         expect(app(SnapshotBuilder::class)->subscriptionPayload($client))->toBeNull();
     });
 
+    it('reaches a subscription that only knows its branch', function (): void {
+        // School Monitor bills per branch. No column on the subscription row
+        // reaches the school, so the path runs through the branch table.
+        config()->set('retention-extractor.subscription', [
+            'table' => 'branch_licences',
+            'via' => ['business_branch_id' => ['business_branches', 'id', 'business_id']],
+            'start' => 'start_date', 'end' => 'end_date',
+            'where' => ['deleted_at' => null],
+        ]);
+
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => makeBranch($this->business->id, 'Main'),
+            'start_date' => now()->subMonths(6)->toDateString(),
+            'end_date' => now()->addMonths(6)->toDateString(),
+        ]);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['end_date'])
+            ->toBe(now()->addMonths(6)->toDateString());
+    });
+
+    it('does not report another school\'s term as this one\'s', function (): void {
+        config()->set('retention-extractor.subscription', [
+            'table' => 'branch_licences',
+            'via' => ['business_branch_id' => ['business_branches', 'id', 'business_id']],
+            'start' => 'start_date', 'end' => 'end_date',
+            'where' => ['deleted_at' => null],
+        ]);
+
+        $other = makeBusiness(['business_name' => 'Another School']);
+
+        // Theirs runs furthest, so an unscoped query would hand it over.
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => makeBranch($other->id, 'Theirs'),
+            'start_date' => now()->subMonths(6)->toDateString(),
+            'end_date' => now()->addYears(3)->toDateString(),
+        ]);
+
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => makeBranch($this->business->id, 'Ours'),
+            'start_date' => now()->subMonths(6)->toDateString(),
+            'end_date' => now()->addMonths(6)->toDateString(),
+        ]);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['end_date'])
+            ->toBe(now()->addMonths(6)->toDateString());
+    });
+
+    it('does not report a deleted term as the current one', function (): void {
+        // The row reported is whichever ends last, so a deleted future term
+        // would otherwise become the one this product is said to hold.
+        config()->set('retention-extractor.subscription', [
+            'table' => 'branch_licences',
+            'via' => ['business_branch_id' => ['business_branches', 'id', 'business_id']],
+            'start' => 'start_date', 'end' => 'end_date',
+            'where' => ['deleted_at' => null],
+        ]);
+
+        $branchId = makeBranch($this->business->id, 'Main');
+
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => $branchId,
+            'start_date' => now()->subMonths(6)->toDateString(),
+            'end_date' => now()->addMonths(6)->toDateString(),
+        ]);
+
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => $branchId,
+            'start_date' => now()->subMonths(6)->toDateString(),
+            'end_date' => now()->addYears(2)->toDateString(),
+            'deleted_at' => now(),
+        ]);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['end_date'])
+            ->toBe(now()->addMonths(6)->toDateString());
+    });
+
     it('returns nothing at all when subscriptions are not configured', function (): void {
         config()->set('retention-extractor.subscription', null);
 

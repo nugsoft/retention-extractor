@@ -109,6 +109,9 @@ abstract class TestCase extends Orchestra
         Schema::create('branch_licences', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('business_branch_id');
+            // One table serves both mappings here, as it does in School
+            // Monitor: it is the subscription AND the thing a cap is put on.
+            $table->date('start_date')->nullable();
             $table->date('end_date')->nullable();
             $table->date('license_expires_at')->nullable();
 
