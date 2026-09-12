@@ -18,7 +18,14 @@ php artisan retention:install
 ```
 
 `retention:install` reads your schema, proposes a mapping, and writes
-`config/retention-extractor.php`.
+`config/retention-extractor.php`. It covers both directions — what your product
+sends, and how Retention Intel switches a client off here — and it ends by
+saying whether licence sync came out on or off, so a half-finished setup says so
+rather than looking finished.
+
+If Retention Intel already knows where your product keeps its subscriptions and
+its licence, the wizard offers to take both from there and asks you neither.
+See [Where the mapping lives](#where-the-mapping-lives).
 
 Then add to `.env`:
 
@@ -26,6 +33,7 @@ Then add to `.env`:
 RETENTION_API_URL=https://retention.nugsoft.com
 RETENTION_API_KEY=          # issued by the CTO, one per product
 RETENTION_PRODUCT_CODE=poscream
+RETENTION_LICENCE_SECRET=   # only if Retention Intel switches clients off here
 ```
 
 Preview what would be sent, without sending it:
@@ -34,8 +42,19 @@ Preview what would be sent, without sending it:
 php artisan retention:push --dry-run
 ```
 
-When that looks right, you're done — the daily push is scheduled automatically
-at 02:00. Make sure your scheduler cron is running.
+Then check the whole thing:
+
+```bash
+php artisan retention:status
+```
+
+That reports what is actually wired — whether your key is recognised and as
+which product, where the mappings come from, how a client is switched off here,
+and when a licence was last applied. Every line is a fact or a stated absence.
+
+When it reads right, you're done — the daily push is scheduled automatically at
+02:00 and the licence pull hourly. Make sure your scheduler cron is running, or
+neither happens.
 
 ## It cannot guess, and does not try
 
@@ -48,6 +67,51 @@ So the config file is the contract. `retention:install` fills it in with its
 best reading of your schema to save you typing, and then it is on you to check
 what it wrote. Anything it cannot find, it leaves blank and the push refuses to
 run until you fill it in.
+
+## Where the mapping lives
+
+Two answers, and it is a decision rather than a fallback.
+
+**`local`** — the default, and what everything below describes. The mapping
+sits in your `config/retention-extractor.php`, changes go through your review,
+and nothing outside your repository can move it. Right wherever your team owns
+this integration.
+
+**`remote`** — the subscription and licence mappings come from Retention Intel
+instead:
+
+```dotenv
+RETENTION_MAPPING_SOURCE=remote
+```
+
+Leave those two blocks empty locally and Retention Intel answers for them. A
+column that moves later is then a change there, with no release of this package
+and no deployment of yours.
+
+That exists because for some products the first option is not available at any
+price — a team with its own roadmap, an install nobody can deploy to. The
+package goes in once and everything after has to be answerable from the other
+side.
+
+Three things keep it honest:
+
+- **It is opted into and never inferred.** A product silently taking
+  instructions about which table to write, from the network, is not a default
+  anybody should get by accident.
+- **Secrets never travel.** `RETENTION_LICENCE_SECRET` and your licence route
+  stay in your environment and are merged over the answer, so it can say where
+  things are without being able to say who may change them.
+- **A failure is never a guess.** The last good answer is kept and used; with
+  none at all nothing reports as mapped and the licence endpoint answers `503`,
+  which is retried — rather than writing against a table it is no longer sure
+  about.
+
+`retention:sync-licence` refreshes the cached mapping, so a correction made
+centrally is live on the next pull.
+
+Everything else — who your clients are, their branches, the metric tables and
+last activity — is always read from your own config file, whichever source you
+choose.
 
 ## Configuration
 
@@ -126,6 +190,29 @@ never reporting them would hide exactly the clients most at risk.
 
 Leave it `null` and no subscription data is pushed.
 
+The row reported is **whichever ends last**, which makes two keys worth knowing
+about wherever a product keeps more than one.
+
+`via` is a column on the subscription table, or the same two-step path the
+metrics use where the table only knows something beneath the client. School
+Monitor bills per branch, and nothing on a subscription row names a school:
+
+```php
+'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+```
+
+`where` drops rows your product would not read itself. **This matters more than
+it looks.** These queries do not go through your models, so a soft-deleted row
+is still a candidate — and since the row reported is the one ending last, a
+deleted future term is reported as the current one:
+
+```php
+'where' => ['deleted_at' => null],
+```
+
+Four Clinic Plus facilities were pushing a term from a deleted row before this
+was found. Nothing errored; the dates were simply two days wrong.
+
 ### Licences (optional)
 
 Everything above pushes data *out*. This is the one thing that comes back:
@@ -169,10 +256,24 @@ shorten access, never hand somebody time they have not paid for.
 A licence covers the whole client, so where the rows are per branch every
 branch of that client is written. A client is either on or off, never half.
 
+Where that table soft-deletes, say so:
+
+```php
+'where' => ['deleted_at' => null],
+```
+
+Without it this package caps rows your product never reads, then reads them back
+and reports a restriction nobody is enforcing — which shows up in Retention
+Intel as a disagreement that no amount of re-sending will clear.
+
 Set `RETENTION_LICENCE_SECRET` to the value issued with your API key. Without
 it nothing is received — an endpoint that switches clients off must not take
-anybody's word for who is calling. Leave `table` null and no route is mounted
-at all.
+anybody's word for who is calling.
+
+Leave `table` null and no route is mounted at all, unless
+`RETENTION_MAPPING_SOURCE=remote`, in which case naming that source is the
+declaration of intent: the route is mounted and answers `503` until a mapping
+arrives, because a `503` is retried and a `404` is final.
 
 The package ships a migration for `retention_licences`, which records the last
 version applied here. That is what lets a webhook arriving after a newer one be
@@ -238,6 +339,7 @@ Anything else you send is kept in `raw_payload` but not scored.
 | Command | |
 | --- | --- |
 | `retention:install` | Guided setup; writes the config |
+| `retention:status` | Report what is actually wired up |
 | `retention:push` | Push every client |
 | `retention:push --dry-run` | Print the payloads, send nothing |
 | `retention:push --client=ID` | Push one client, for testing |
