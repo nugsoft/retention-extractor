@@ -259,7 +259,7 @@ describe('asking for the current state', function (): void {
         DB::table('facilities')->insert(['id' => 1, 'name' => 'Kampala Clinic', 'status' => 'Active']);
     });
 
-    it('applies what Retention Intel says, healing a webhook nobody received', function (): void {
+    it('applies what NugsoftOS says, healing a webhook nobody received', function (): void {
         Http::fake(['*/api/v1/licence*' => Http::response([
             'product' => 'poscream',
             'licences' => [licencePayload(['grants_access' => false, 'licence_version' => 4])],

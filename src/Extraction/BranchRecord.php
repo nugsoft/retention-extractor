@@ -7,7 +7,7 @@ namespace Nugsoft\RetentionExtractor\Extraction;
 /**
  * One of a client's branches.
  *
- * A branch is not a client. The client is the business Retention Intel scores,
+ * A branch is not a client. The client is the business NugsoftOS scores,
  * watchlists and can lose; a branch is where that business's work is recorded.
  * These exist so a client whose figures are falling can be read as "the Kyanja
  * campus stopped" rather than as one number nobody can act on.

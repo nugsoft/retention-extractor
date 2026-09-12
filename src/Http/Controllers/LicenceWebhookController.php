@@ -13,7 +13,7 @@ use Nugsoft\RetentionExtractor\Licensing\LicenceState;
 use Throwable;
 
 /**
- * Receives a licence change from Retention Intel and applies it here.
+ * Receives a licence change from NugsoftOS and applies it here.
  *
  * Answers 200 to anything it has understood, including a delivery it decided
  * not to apply. A non-200 tells the sender to retry, and retrying a message
@@ -59,7 +59,7 @@ class LicenceWebhookController extends Controller
         try {
             $changed = $applier->apply($licence);
         } catch (Throwable $exception) {
-            Log::error('Failed to apply a licence change from Retention Intel.', [
+            Log::error('Failed to apply a licence change from NugsoftOS.', [
                 'external_id' => $licence->externalId,
                 'exception' => $exception->getMessage(),
             ]);

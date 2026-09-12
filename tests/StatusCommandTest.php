@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Http;
  * absence — nothing inferred from something adjacent, and nothing that reads as
  * working when it is not.
  */
-function identifiedByRetentionIntel(): void
+function identifiedByNugsoftOS(): void
 {
     Http::fake(['*/api/v1/metrics' => Http::response([
         'product' => ['code' => 'clinic_plus', 'name' => 'Clinic Plus'],
@@ -26,8 +26,8 @@ function identifiedByRetentionIntel(): void
 }
 
 describe('reporting what is wired up', function (): void {
-    it('says who Retention Intel thinks this product is', function (): void {
-        identifiedByRetentionIntel();
+    it('says who NugsoftOS thinks this product is', function (): void {
+        identifiedByNugsoftOS();
 
         $this->artisan('retention:status')
             ->expectsOutputToContain('Clinic Plus')
@@ -35,7 +35,7 @@ describe('reporting what is wired up', function (): void {
     });
 
     it('describes how a client is switched off here', function (): void {
-        identifiedByRetentionIntel();
+        identifiedByNugsoftOS();
         withStatusLicence();
 
         $this->artisan('retention:status')
@@ -45,7 +45,7 @@ describe('reporting what is wired up', function (): void {
 
     it('says plainly when nothing can switch a client off', function (): void {
         // The state an install used to end in, silently.
-        identifiedByRetentionIntel();
+        identifiedByNugsoftOS();
         config()->set('retention-extractor.licence.table', null);
 
         $this->artisan('retention:status')
@@ -54,7 +54,7 @@ describe('reporting what is wired up', function (): void {
     });
 
     it('warns when there is no signing secret to be believed by', function (): void {
-        identifiedByRetentionIntel();
+        identifiedByNugsoftOS();
         withStatusLicence();
         config()->set('retention-extractor.licence.secret', null);
 
@@ -74,7 +74,7 @@ describe('reporting what is wired up', function (): void {
     it('names which rows it will not touch', function (): void {
         // The soft-delete trap, made visible rather than left to be discovered
         // as a disagreement no amount of re-sending would clear.
-        identifiedByRetentionIntel();
+        identifiedByNugsoftOS();
         withCeilingLicence();
 
         $this->artisan('retention:status')

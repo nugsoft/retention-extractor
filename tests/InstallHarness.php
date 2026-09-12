@@ -44,7 +44,7 @@ trait InstallHarness
     }
 
     /**
-     * What Retention Intel says it needs, when asked.
+     * What NugsoftOS says it needs, when asked.
      *
      * @param  array<int, string>  $required
      * @param  array<string, array<int, string>>  $hints
@@ -67,9 +67,9 @@ trait InstallHarness
     }
 
     /**
-     * Retention Intel unreachable, which must fall back rather than fail.
+     * NugsoftOS unreachable, which must fall back rather than fail.
      */
-    protected function fakeUnreachableRetentionIntel(): void
+    protected function fakeUnreachableNugsoftOS(): void
     {
         Http::fake(['*/api/v1/metrics' => Http::response(['message' => 'Unauthenticated.'], 401)]);
     }
@@ -105,11 +105,11 @@ trait InstallHarness
     protected function connectAndIdentifyTenant(?string $key = null, string $realUse = 'sales'): array
     {
         return [
-            ['Where is Retention Intel?', 'https://retention.test'],
+            ['Where is NugsoftOS?', 'https://retention.test'],
             ['The API key issued for this product', $key ?? str_repeat('a', 64)],
             ['Does this installation serve more than one business?', true],
             ['Which table holds those businesses?', 'businesses'],
-            ['Which column identifies each business to Retention Intel?', 'id'],
+            ['Which column identifies each business to NugsoftOS?', 'id'],
             ['Which column holds the business name?', 'business_name'],
             ['Does a business have branches, and is that where the work is recorded?', false],
             ['Which table best represents real use of this product?', $realUse],
@@ -124,16 +124,16 @@ trait InstallHarness
     protected function connectAndIdentifyBranches(string $realUse = 'sales'): array
     {
         return [
-            ['Where is Retention Intel?', 'https://retention.test'],
+            ['Where is NugsoftOS?', 'https://retention.test'],
             ['The API key issued for this product', str_repeat('a', 64)],
             ['Does this installation serve more than one business?', true],
             ['Which table holds those businesses?', 'businesses'],
-            ['Which column identifies each business to Retention Intel?', 'id'],
+            ['Which column identifies each business to NugsoftOS?', 'id'],
             ['Which column holds the business name?', 'business_name'],
             ['Does a business have branches, and is that where the work is recorded?', true],
             ['Which table holds those branches?', 'business_branches'],
             ["Which column on 'business_branches' says which business a branch belongs to?", 'business_id'],
-            ['Which column identifies each branch to Retention Intel?', 'id'],
+            ['Which column identifies each branch to NugsoftOS?', 'id'],
             ['Which column holds the branch name?', 'name'],
             ['And which column do your other tables use to name a branch?', 'business_branch_id'],
             ["Send the address and contacts on 'business_branches' as part of the client's profile?", true],
@@ -154,12 +154,12 @@ trait InstallHarness
     {
         return [
             ["Push subscription dates from 'subscriptions'?", false],
-            ['Should Retention Intel be able to switch clients off here?', false],
+            ['Should NugsoftOS be able to switch clients off here?', false],
         ];
     }
 
     /**
-     * What Retention Intel already knows about where things live.
+     * What NugsoftOS already knows about where things live.
      *
      * Faked as nothing by default, because a mapping it holds changes the
      * wizard: it offers to take both from there and asks neither.

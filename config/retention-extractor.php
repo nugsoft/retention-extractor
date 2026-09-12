@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 /*
 |--------------------------------------------------------------------------
-| Retention Intel extractor
+| NugsoftOS extractor
 |--------------------------------------------------------------------------
 |
-| This file is the contract between your product and Retention Intel. Nothing
+| This file is the contract between your product and NugsoftOS. Nothing
 | is inferred at run time: what gets pushed is exactly what you describe here.
 |
 | `php artisan retention:install` inspects your schema and fills this in with
@@ -36,7 +36,7 @@ return [
     ],
 
     /*
-    | Must match a `code` in Retention Intel's products table, and must match
+    | Must match a `code` in NugsoftOS's products table, and must match
     | the product your API key is scoped to.
     */
 
@@ -57,7 +57,7 @@ return [
     |           the integration: the mapping sits in their repository, changes
     |           go through their review, and nothing outside can move it.
     |
-    | 'remote'  ask Retention Intel, and use `subscription` and `licence` from
+    | 'remote'  ask NugsoftOS, and use `subscription` and `licence` from
     |           the answer instead of the ones written below.
     |
     | The second exists for a product that cannot take a change — a team with
@@ -146,7 +146,7 @@ return [
         | table that only knows the branch is counted for the business. And each
         | branch's own share is the same query narrowed to that one branch.
         |
-        | A branch is never scored. Retention Intel keeps one health score and
+        | A branch is never scored. NugsoftOS keeps one health score and
         | one watchlist entry per business, whichever level your product
         | happens to bill; the breakdown is what somebody reads when that score
         | falls and they need to know which branch stopped.
@@ -173,7 +173,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Each entry is one aggregate over one table, restricted to the last
-    | `window_days`. The key must be a metric Retention Intel knows — see the
+    | `window_days`. The key must be a metric NugsoftOS knows — see the
     | list at the bottom of this file.
     |
     |     'items_sold_7d' => [
@@ -219,7 +219,7 @@ return [
     |     ],
     |
     | If your product records nothing that means "somebody used this", leave the
-    | metric out. Retention Intel asks only for what it scores you on, and a
+    | metric out. NugsoftOS asks only for what it scores you on, and a
     | product that cannot report a component is scored across the ones it can
     | rather than marked down for the gap.
     |
@@ -250,7 +250,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Leave null and no subscription data is pushed. `status_map` translates
-    | your product's wording into Retention Intel's: active, expired, cancelled.
+    | your product's wording into NugsoftOS's: active, expired, cancelled.
     |
     | The row reported is whichever ends last, so two keys matter where a
     | product keeps more than one:
@@ -277,7 +277,7 @@ return [
     | Licences (optional)
     |--------------------------------------------------------------------------
     |
-    | Retention Intel is the master for whether a client may work. Fill this in
+    | NugsoftOS is the master for whether a client may work. Fill this in
     | and it will tell this product when somebody is switched on or off —
     | pushed the moment it happens, and asked for again on a schedule so a
     | missed message does not leave a suspended client working.
@@ -375,7 +375,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Metrics Retention Intel accepts
+    | Metrics NugsoftOS accepts
     |--------------------------------------------------------------------------
     |
     | Every product sends:            login_count_7d

@@ -14,7 +14,7 @@ use Nugsoft\RetentionExtractor\Http\RetentionClient;
 use Throwable;
 
 /**
- * Collects each client's figures and pushes them to Retention Intel.
+ * Collects each client's figures and pushes them to NugsoftOS.
  *
  * One client failing never stops the rest — a single bad tenant row should not
  * cost the whole product a day of data.
@@ -25,7 +25,7 @@ class PushCommand extends Command
                             {--dry-run : Print the payloads instead of sending them}
                             {--client= : Push a single external_id, for testing}';
 
-    protected $description = 'Push client activity and subscription data to Retention Intel';
+    protected $description = 'Push client activity and subscription data to NugsoftOS';
 
     public function handle(
         ClientResolver $clients,
@@ -126,7 +126,7 @@ class PushCommand extends Command
             return self::FAILURE;
         }
 
-        $this->components->info("Pushed {$pushed} client(s) to Retention Intel.");
+        $this->components->info("Pushed {$pushed} client(s) to NugsoftOS.");
 
         return self::SUCCESS;
     }
@@ -136,7 +136,7 @@ class PushCommand extends Command
         if (blank(config('retention-extractor.product'))) {
             throw ConfigurationException::missing(
                 'product',
-                'Set RETENTION_PRODUCT_CODE to this product\'s code in Retention Intel.',
+                'Set RETENTION_PRODUCT_CODE to this product\'s code in NugsoftOS.',
             );
         }
 

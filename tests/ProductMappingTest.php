@@ -10,7 +10,7 @@ use Nugsoft\RetentionExtractor\Licensing\LicenceState;
 use Nugsoft\RetentionExtractor\Support\ProductMapping;
 
 /**
- * Asking Retention Intel where things live.
+ * Asking NugsoftOS where things live.
  *
  * For a product whose team owns this integration the mapping belongs in its
  * own repository, and `local` is right. This is the other case: a product that
@@ -132,7 +132,7 @@ describe('a product told to ask', function (): void {
     });
 });
 
-describe('when Retention Intel cannot be reached', function (): void {
+describe('when NugsoftOS cannot be reached', function (): void {
     it('keeps using the last answer it had', function (): void {
         remoteMapping(schoolMonitorMapping());
         mapping()->licence();

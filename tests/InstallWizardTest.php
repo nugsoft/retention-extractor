@@ -122,7 +122,7 @@ describe('a multi-tenant product', function (): void {
     });
 });
 
-describe('what Retention Intel says it needs', function (): void {
+describe('what NugsoftOS says it needs', function (): void {
     it('asks only for the metrics the contract names', function (): void {
         $this->fakeContract(required: ['transactions_7d']);
 
@@ -163,17 +163,17 @@ describe('what Retention Intel says it needs', function (): void {
     });
 });
 
-describe('when Retention Intel cannot be reached', function (): void {
+describe('when NugsoftOS cannot be reached', function (): void {
     it('falls back to the built-in list and says that is what it is doing', function (): void {
-        $this->fakeUnreachableRetentionIntel();
+        $this->fakeUnreachableNugsoftOS();
 
         $this->install([
-            ['Where is Retention Intel?', 'https://retention.test'],
+            ['Where is NugsoftOS?', 'https://retention.test'],
             ['The API key issued for this product', str_repeat('a', 64)],
             ['Which product is this?', 'poscream'],
             ['Does this installation serve more than one business?', true],
             ['Which table holds those businesses?', 'businesses'],
-            ['Which column identifies each business to Retention Intel?', 'id'],
+            ['Which column identifies each business to NugsoftOS?', 'id'],
             ['Which column holds the business name?', 'business_name'],
             ['Does a business have branches, and is that where the work is recorded?', false],
             ['Which table best represents real use of this product?', 'sales'],
@@ -194,12 +194,12 @@ describe('when Retention Intel cannot be reached', function (): void {
         Http::fake();
 
         $this->install([
-            ['Where is Retention Intel?', 'https://retention.test'],
+            ['Where is NugsoftOS?', 'https://retention.test'],
             ['The API key issued for this product', ''],
             ['Which product is this?', 'poscream'],
             ['Does this installation serve more than one business?', true],
             ['Which table holds those businesses?', 'businesses'],
-            ['Which column identifies each business to Retention Intel?', 'id'],
+            ['Which column identifies each business to NugsoftOS?', 'id'],
             ['Which column holds the business name?', 'business_name'],
             ['Does a business have branches, and is that where the work is recorded?', false],
             ['Which table best represents real use of this product?', 'sales'],
@@ -335,7 +335,7 @@ describe('a metric nothing can place', function (): void {
             ->and($metrics)->toHaveKey('transactions_7d');
     });
 
-    it('still proposes the table Retention Intel named', function (): void {
+    it('still proposes the table NugsoftOS named', function (): void {
         $this->fakeContract(required: ['attendance_records_7d'], hints: [
             'attendance_records_7d' => ['tables' => ['audit_trail']],
         ]);
@@ -445,7 +445,7 @@ describe('the half that receives', function (): void {
             ...$this->connectAndIdentifyTenant(),
             ['transactions_7d', 'sales'],
             ["Push subscription dates from 'subscriptions'?", false],
-            ['Should Retention Intel be able to switch clients off here?', true],
+            ['Should NugsoftOS be able to switch clients off here?', true],
             // No "how does this reach a client?" — the licence is on the
             // client's own row, so the answer is that row's key.
             ['Which table holds that?', 'businesses'],
@@ -479,7 +479,7 @@ describe('the half that receives', function (): void {
         expect($this->writtenConfig()['licence']['table'])->toBeNull();
     });
 
-    it('offers to take both mappings from Retention Intel, and asks neither', function (): void {
+    it('offers to take both mappings from NugsoftOS, and asks neither', function (): void {
         $this->fakeContract(required: ['transactions_7d']);
         $this->fakeKnownMapping(
             licence: ['table' => 'branch_subscriptions', 'ceiling' => ['column' => 'license_expires_at']],
@@ -489,8 +489,8 @@ describe('the half that receives', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['transactions_7d', 'sales'],
-            ['Take the subscription and licence mapping from Retention Intel?', true],
-        ])->expectsOutputToContain('Licence sync: on, mapped from Retention Intel')->assertSuccessful()->run();
+            ['Take the subscription and licence mapping from NugsoftOS?', true],
+        ])->expectsOutputToContain('Licence sync: on, mapped from NugsoftOS')->assertSuccessful()->run();
 
         // Nothing written locally, and the source pointed elsewhere. This is
         // the whole point for a product whose team cannot take a code change.
@@ -501,7 +501,7 @@ describe('the half that receives', function (): void {
             ->and($config['licence']['table'])->toBeNull();
     });
 
-    it('does not offer what Retention Intel does not have', function (): void {
+    it('does not offer what NugsoftOS does not have', function (): void {
         // A question whose right answer is "no" and whose consequence is a
         // product that reports nothing and enforces nothing.
         $this->fakeContract(required: ['transactions_7d']);

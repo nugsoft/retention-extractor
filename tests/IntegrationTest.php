@@ -10,7 +10,7 @@ use Nugsoft\RetentionExtractor\Http\RetentionClient;
 use Nugsoft\RetentionExtractor\Tests\Fixtures\Business;
 
 /**
- * Pushes against a real Retention Intel instance.
+ * Pushes against a real NugsoftOS instance.
  *
  * Skipped unless RETENTION_TEST_URL and RETENTION_TEST_KEY are set, so the
  * suite stays green on CI without one running.

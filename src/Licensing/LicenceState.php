@@ -7,7 +7,7 @@ namespace Nugsoft\RetentionExtractor\Licensing;
 use Illuminate\Support\Carbon;
 
 /**
- * What Retention Intel says about one client's licence.
+ * What NugsoftOS says about one client's licence.
  *
  * Deliberately small. `grantsAccess` is the field this product acts on; the
  * dates are here so a product can tell its own users when their licence ends

@@ -36,7 +36,7 @@ class SnapshotBuilder
             'product' => $this->product,
             'last_activity_date' => $lastActivity,
             ...$metrics,
-            // Everything collected is echoed back so Retention Intel keeps the
+            // Everything collected is echoed back so NugsoftOS keeps the
             // raw figures even for metrics it does not score.
             'raw_payload' => [
                 'collected_at' => now()->toIso8601String(),
@@ -222,7 +222,7 @@ class SnapshotBuilder
     }
 
     /**
-     * The product's own wording, translated into Retention Intel's.
+     * The product's own wording, translated into NugsoftOS's.
      *
      * Where the product says nothing this reads the end date instead of
      * assuming `active`. Assuming was wrong in the one direction that matters:

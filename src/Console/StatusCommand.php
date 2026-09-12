@@ -22,22 +22,22 @@ use Throwable;
  *
  * Every line is either a fact or a stated absence. Nothing here says "probably"
  * and nothing is inferred from something adjacent: whether a key works is
- * whether Retention Intel answered, not whether one is set.
+ * whether NugsoftOS answered, not whether one is set.
  */
 class StatusCommand extends Command
 {
     protected $signature = 'retention:status';
 
-    protected $description = 'Report what is wired up between this product and Retention Intel';
+    protected $description = 'Report what is wired up between this product and NugsoftOS';
 
     public function handle(RetentionClient $api, ProductMapping $mapping): int
     {
         $this->newLine();
-        $this->components->info('Retention Intel');
+        $this->components->info('NugsoftOS');
 
         $rows = [
             ['Enabled', $this->yesNo((bool) config('retention-extractor.enabled', true))],
-            ['Retention Intel', (string) (config('retention-extractor.api.url') ?: 'not set')],
+            ['NugsoftOS', (string) (config('retention-extractor.api.url') ?: 'not set')],
             ['Product code', (string) (config('retention-extractor.api.key')
                 ? config('retention-extractor.product') ?: 'not set'
                 : 'not set')],
@@ -59,7 +59,7 @@ class StatusCommand extends Command
         // reported and left to a person: an install part-way through setup is
         // not a failure, it is an install part-way through setup.
         if (! $reachable) {
-            $this->components->error('Retention Intel could not be reached or did not recognise this key. Nothing else here can be trusted.');
+            $this->components->error('NugsoftOS could not be reached or did not recognise this key. Nothing else here can be trusted.');
 
             return self::FAILURE;
         }
@@ -96,7 +96,7 @@ class StatusCommand extends Command
         $subscription = $mapping->subscription();
 
         $this->table(['', ''], [
-            ['Source', $mapping->isRemote() ? 'Retention Intel' : 'this product\'s config file'],
+            ['Source', $mapping->isRemote() ? 'NugsoftOS' : 'this product\'s config file'],
             ['Subscription', is_array($subscription) && filled($subscription['table'] ?? null)
                 ? "reporting the term from '{$subscription['table']}'"
                 : 'not mapped — clients arrive with no term'],
@@ -138,7 +138,7 @@ class StatusCommand extends Command
 
         if (blank(config('retention-extractor.licence.secret'))) {
             $this->newLine();
-            $this->components->warn('No signing secret, so every delivery will be refused. It must match `sync_secret` on the product in Retention Intel.');
+            $this->components->warn('No signing secret, so every delivery will be refused. It must match `sync_secret` on the product in NugsoftOS.');
         }
     }
 

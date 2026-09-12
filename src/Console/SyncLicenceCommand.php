@@ -12,7 +12,7 @@ use Nugsoft\RetentionExtractor\Support\ProductMapping;
 use Throwable;
 
 /**
- * Asks Retention Intel what this product's licences currently say, and applies
+ * Asks NugsoftOS what this product's licences currently say, and applies
  * the answer.
  *
  * The half that makes the webhook safe to depend on. A webhook can be missed —
@@ -30,7 +30,7 @@ class SyncLicenceCommand extends Command
                             {--client= : Sync a single external_id}
                             {--dry-run : Report what would change without writing}';
 
-    protected $description = 'Fetch current licences from Retention Intel and apply them here';
+    protected $description = 'Fetch current licences from NugsoftOS and apply them here';
 
     public function handle(RetentionClient $api, ProductMapping $mapping): int
     {
@@ -52,7 +52,7 @@ class SyncLicenceCommand extends Command
 
         if (! $applier->isConfigured()) {
             $mapping->isRemote()
-                ? $this->components->error('Retention Intel has no licence mapping for this product, or could not be reached.')
+                ? $this->components->error('NugsoftOS has no licence mapping for this product, or could not be reached.')
                 : $this->components->error('Licence sync is not configured. Fill in the `licence` block in config/retention-extractor.php.');
 
             return self::FAILURE;
@@ -61,7 +61,7 @@ class SyncLicenceCommand extends Command
         try {
             $response = $api->licences($this->option('client'));
         } catch (Throwable $exception) {
-            $this->components->error("Could not reach Retention Intel: {$exception->getMessage()}");
+            $this->components->error("Could not reach NugsoftOS: {$exception->getMessage()}");
 
             return self::FAILURE;
         }

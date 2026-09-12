@@ -15,7 +15,7 @@ use Nugsoft\RetentionExtractor\Extraction\SnapshotBuilder;
  * a unix integer; an audit trail has the tenant but mixes logins in with every
  * other event; some products record nothing at all. Three capabilities cover
  * the first two — a hop, a filter, and an integer window — and the third is a
- * question for Retention Intel rather than for the extractor.
+ * question for NugsoftOS rather than for the extractor.
  */
 beforeEach(function (): void {
     multiTenantConfig();

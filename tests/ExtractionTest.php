@@ -471,10 +471,10 @@ describe('a subscription with no status the product understands', function (): v
 });
 
 /**
- * Asking Retention Intel what it needs, rather than carrying a list of it.
+ * Asking NugsoftOS what it needs, rather than carrying a list of it.
  *
  * The package knew five product codes, written down when those were all there
- * were. A product added to Retention Intel afterwards could not be set up here
+ * were. A product added to NugsoftOS afterwards could not be set up here
  * until the package was released again, and the copy could drift from what is
  * actually scored with nothing to catch it.
  */
