@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Factory;
 use Illuminate\Support\ServiceProvider;
 use Nugsoft\RetentionExtractor\Console\InstallCommand;
 use Nugsoft\RetentionExtractor\Console\PushCommand;
+use Nugsoft\RetentionExtractor\Console\StatusCommand;
 use Nugsoft\RetentionExtractor\Console\SyncLicenceCommand;
 use Nugsoft\RetentionExtractor\Extraction\ClientResolver;
 use Nugsoft\RetentionExtractor\Extraction\MetricCollector;
@@ -80,6 +81,7 @@ class RetentionExtractorServiceProvider extends ServiceProvider
         $this->commands([
             InstallCommand::class,
             PushCommand::class,
+            StatusCommand::class,
             SyncLicenceCommand::class,
         ]);
 
