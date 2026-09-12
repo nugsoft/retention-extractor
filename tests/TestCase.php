@@ -25,6 +25,25 @@ abstract class TestCase extends Orchestra
         return [RetentionExtractorServiceProvider::class];
     }
 
+    /**
+     * Whether this install has been told to ask where things live.
+     *
+     * Held as state rather than set inside a test because the route and the
+     * schedule are decided at boot, so the answer has to exist before the
+     * application does. `asRemoteInstall()` sets it and rebuilds.
+     */
+    protected bool $remoteInstall = false;
+
+    /**
+     * Rebuild as a product carrying no mapping of its own.
+     */
+    protected function asRemoteInstall(): void
+    {
+        $this->remoteInstall = true;
+
+        $this->refreshApplication();
+    }
+
     protected function defineEnvironment($app): void
     {
         $app['config']->set('database.default', 'testing');
@@ -38,6 +57,12 @@ abstract class TestCase extends Orchestra
         $app['config']->set('retention-extractor.licence.table', 'facilities');
         $app['config']->set('retention-extractor.licence.secret', 'a-signing-key');
         $app['config']->set('retention-extractor.licence.route', 'api/retention/licence');
+
+        if ($this->remoteInstall) {
+            $app['config']->set('retention-extractor.mapping_source', 'remote');
+            $app['config']->set('retention-extractor.licence.table', null);
+            $app['config']->set('retention-extractor.subscription', null);
+        }
     }
 
     /**
@@ -109,8 +134,15 @@ abstract class TestCase extends Orchestra
         Schema::create('branch_licences', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('business_branch_id');
+            // One table serves both mappings here, as it does in School
+            // Monitor: it is the subscription AND the thing a cap is put on.
+            $table->date('start_date')->nullable();
             $table->date('end_date')->nullable();
             $table->date('license_expires_at')->nullable();
+
+            // School Monitor soft-deletes these, and this package queries them
+            // without a model, so it sees rows the product itself never reads.
+            $table->softDeletes();
         });
 
         Schema::create('subscriptions', function (Blueprint $table): void {

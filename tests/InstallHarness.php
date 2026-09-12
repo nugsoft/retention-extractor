@@ -142,13 +142,40 @@ trait InstallHarness
     }
 
     /**
-     * The last question of every install: whether to push subscription dates.
+     * The tail of every install: the two mappings that are not metrics.
+     *
+     * Declined together because most of these tests are about what the metric
+     * half writes, and answering both keeps them saying so. The licence half
+     * has tests of its own.
      *
      * @return array<int, array{0: string, 1: string|bool}>
      */
-    protected function declineSubscriptions(): array
+    protected function declineTwoWayMappings(): array
     {
-        return [["Push subscription dates from 'subscriptions'?", false]];
+        return [
+            ["Push subscription dates from 'subscriptions'?", false],
+            ['Should Retention Intel be able to switch clients off here?', false],
+        ];
+    }
+
+    /**
+     * What Retention Intel already knows about where things live.
+     *
+     * Faked as nothing by default, because a mapping it holds changes the
+     * wizard: it offers to take both from there and asks neither.
+     *
+     * @param  array<string, mixed>|null  $licence
+     * @param  array<string, mixed>|null  $subscription
+     */
+    protected function fakeKnownMapping(?array $licence = null, ?array $subscription = null): void
+    {
+        Http::fake([
+            '*/api/v1/mapping' => Http::response([
+                'product' => ['code' => 'poscream', 'name' => 'POScream'],
+                'subscription' => $subscription,
+                'licence' => $licence,
+            ]),
+        ]);
     }
 
     /**

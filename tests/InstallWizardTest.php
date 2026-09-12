@@ -26,7 +26,7 @@ describe('a multi-tenant product', function (): void {
             ...$this->connectAndIdentifyTenant(),
             ['transactions_7d', 'sales'],
             ['transaction_value_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         $config = $this->writtenConfig();
@@ -50,7 +50,7 @@ describe('a multi-tenant product', function (): void {
             ...$this->connectAndIdentifyTenant(),
             ['login_count_7d', 'sessions_log'],
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics'])
@@ -74,7 +74,7 @@ describe('a multi-tenant product', function (): void {
             ['And which table is that?', 'sales'],
             ["Which column on 'sales' does sale_items.sale_id match?", 'id'],
             ["And which column on 'sales' holds the businesses it belongs to?", 'business_id'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics']['items_sold_7d']['via'])
@@ -89,7 +89,7 @@ describe('a multi-tenant product', function (): void {
             ['items_sold_7d', 'sale_items'],
             ["How does a row in 'sale_items' reach the businesses it belongs to?", 'skip'],
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         $metrics = $this->writtenConfig()['metrics'];
@@ -109,7 +109,7 @@ describe('a multi-tenant product', function (): void {
             ...$this->connectAndIdentifyTenant(),
             ['login_count_7d', 'sessions_log'],
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         $config = $this->writtenConfig();
@@ -129,7 +129,7 @@ describe('what Retention Intel says it needs', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect(array_keys($this->writtenConfig()['metrics']))->toBe(['transactions_7d']);
@@ -145,7 +145,7 @@ describe('what Retention Intel says it needs', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->expectsOutputToContain('Boda Express')->assertSuccessful()->run();
 
         expect(array_keys($this->writtenConfig()['metrics']))->toBe(['transactions_7d']);
@@ -156,7 +156,7 @@ describe('what Retention Intel says it needs', function (): void {
 
         $this->install([
             ...$this->connectAndIdentifyTenant(),
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->expectsOutputToContain('scored')->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics'])->toBe([]);
@@ -181,7 +181,7 @@ describe('when Retention Intel cannot be reached', function (): void {
             ['items_sold_7d', 'skip'],
             ['transactions_7d', 'sales'],
             ['transaction_value_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])
             ->expectsOutputToContain('Falling back to the list built into this package')
             ->assertSuccessful()
@@ -207,7 +207,7 @@ describe('when Retention Intel cannot be reached', function (): void {
             ['items_sold_7d', 'skip'],
             ['transactions_7d', 'sales'],
             ['transaction_value_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])
             ->expectsOutputToContain('Falling back to the list built into this package')
             ->assertSuccessful()
@@ -237,7 +237,7 @@ describe('a hint that says which rows count', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['login_count_7d', 'audit_trail'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics']['login_count_7d'])
@@ -259,7 +259,7 @@ describe('a hint that says which rows count', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['login_count_7d', 'audit_trail'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         $mapping = $this->writtenConfig()['metrics']['login_count_7d'];
@@ -284,7 +284,7 @@ describe('a hint that says which rows count', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['login_count_7d', 'sessions_log'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics']['login_count_7d'])
@@ -301,7 +301,7 @@ describe('a hint that says which rows count', function (): void {
             ...$this->connectAndIdentifyTenant(),
             // Answered with the default the wizard offered.
             ['login_count_7d', 'audit_trail'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics']['login_count_7d']['table'])->toBe('audit_trail');
@@ -326,7 +326,7 @@ describe('a metric nothing can place', function (): void {
             // Answered with the default the wizard offered, which must be skip.
             ['attendance_records_7d', 'skip'],
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         $metrics = $this->writtenConfig()['metrics'];
@@ -343,7 +343,7 @@ describe('a metric nothing can place', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['attendance_records_7d', 'audit_trail'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['metrics']['attendance_records_7d']['table'])->toBe('audit_trail');
@@ -365,7 +365,7 @@ describe('branches beneath a client', function (): void {
         $this->install([
             ...$this->connectAndIdentifyBranches(),
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['clients']['branches'])->toBe([
@@ -394,7 +394,7 @@ describe('branches beneath a client', function (): void {
             // `visits` has no business_id at all. Before branches, this metric
             // demanded a warning and four more answers.
             ['visits_7d', 'visits'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         $mapping = $this->writtenConfig()['metrics']['visits_7d'];
@@ -409,7 +409,7 @@ describe('branches beneath a client', function (): void {
         $this->install([
             ...$this->connectAndIdentifyBranches(),
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         // `sales` knows both, so the client total uses the direct column and
@@ -423,9 +423,96 @@ describe('branches beneath a client', function (): void {
         $this->install([
             ...$this->connectAndIdentifyTenant(),
             ['transactions_7d', 'sales'],
-            ...$this->declineSubscriptions(),
+            ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
         expect($this->writtenConfig()['clients']['branches'])->toBeNull();
+    });
+});
+
+describe('the half that receives', function (): void {
+    /**
+     * The wizard mapped everything a product sends and nothing it receives, so
+     * an install came out of it with no licence block, no webhook route
+     * mounted, and no sign that anything was missing. Both products this has
+     * been run against needed that half hand-written afterwards by somebody
+     * who happened to know.
+     */
+    it('asks where a client is switched off, and writes it', function (): void {
+        $this->fakeContract(required: ['transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ["Push subscription dates from 'subscriptions'?", false],
+            ['Should Retention Intel be able to switch clients off here?', true],
+            // No "how does this reach a client?" — the licence is on the
+            // client's own row, so the answer is that row's key.
+            ['Which table holds that?', 'businesses'],
+            ['How does this product say a client may work?', 'status'],
+            ['Which column?', 'status'],
+            ['What does it say when they may work?', 'Active'],
+            ['And when they may not?', 'Suspend'],
+        ])->assertSuccessful()->run();
+
+        $licence = $this->writtenConfig()['licence'];
+
+        expect($licence['table'])->toBe('businesses')
+            ->and($licence['status'])->toBe([
+                'column' => 'status',
+                'granted' => 'Active',
+                'revoked' => 'Suspend',
+            ]);
+    });
+
+    it('says out loud when licence sync is left off', function (): void {
+        // Silence is how an install ends up pushing happily while every licence
+        // change bounces off a route that was never mounted.
+        $this->fakeContract(required: ['transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineTwoWayMappings(),
+        ])->expectsOutputToContain('Licence sync: OFF')->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['licence']['table'])->toBeNull();
+    });
+
+    it('offers to take both mappings from Retention Intel, and asks neither', function (): void {
+        $this->fakeContract(required: ['transactions_7d']);
+        $this->fakeKnownMapping(
+            licence: ['table' => 'branch_subscriptions', 'ceiling' => ['column' => 'license_expires_at']],
+            subscription: ['table' => 'branch_subscriptions', 'start' => 'start_date', 'end' => 'end_date'],
+        );
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ['Take the subscription and licence mapping from Retention Intel?', true],
+        ])->expectsOutputToContain('Licence sync: on, mapped from Retention Intel')->assertSuccessful()->run();
+
+        // Nothing written locally, and the source pointed elsewhere. This is
+        // the whole point for a product whose team cannot take a code change.
+        $config = $this->writtenConfig();
+
+        expect($config['mapping_source'])->toBe('remote')
+            ->and($config['subscription'])->toBeNull()
+            ->and($config['licence']['table'])->toBeNull();
+    });
+
+    it('does not offer what Retention Intel does not have', function (): void {
+        // A question whose right answer is "no" and whose consequence is a
+        // product that reports nothing and enforces nothing.
+        $this->fakeContract(required: ['transactions_7d']);
+        $this->fakeKnownMapping();
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineTwoWayMappings(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['mapping_source'])->toBe('local');
     });
 });

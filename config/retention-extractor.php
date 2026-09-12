@@ -50,6 +50,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Where the mappings below come from
+    |--------------------------------------------------------------------------
+    |
+    | 'local'   this file. Right wherever the team running this product owns
+    |           the integration: the mapping sits in their repository, changes
+    |           go through their review, and nothing outside can move it.
+    |
+    | 'remote'  ask Retention Intel, and use `subscription` and `licence` from
+    |           the answer instead of the ones written below.
+    |
+    | The second exists for a product that cannot take a change — a team with
+    | its own roadmap, an install nobody there can deploy to. The package goes
+    | in once and everything after that is answerable from the other side.
+    |
+    | It is opted into and never inferred: a product silently taking
+    | instructions about which table to write from the network is not something
+    | anybody should get by accident.
+    |
+    | Secrets never travel either way. The signing secret and the route stay in
+    | this environment and are merged over the answer, so it can say where
+    | things are without being able to say who may change them.
+    |
+    | A failure is never a guess. The last good answer is kept and used; with
+    | no answer at all nothing is reported as mapped, and the licence endpoint
+    | says 503 and is retried rather than writing against a table it is no
+    | longer sure about.
+    |
+    */
+
+    'mapping_source' => env('RETENTION_MAPPING_SOURCE', 'local'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Who your clients are
     |--------------------------------------------------------------------------
     |
@@ -219,6 +252,22 @@ return [
     | Leave null and no subscription data is pushed. `status_map` translates
     | your product's wording into Retention Intel's: active, expired, cancelled.
     |
+    | The row reported is whichever ends last, so two keys matter where a
+    | product keeps more than one:
+    |
+    |   'via'    a column on the subscription table, or the same two-step path
+    |            the metrics use where the table only knows something beneath
+    |            the client. School Monitor bills per branch, and a branch row
+    |            is what names the school:
+    |
+    |                'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    |
+    |   'where'  drops rows the product would not read itself. This query does
+    |            not go through your models, so a soft-deleted future term
+    |            would otherwise be reported as the current one:
+    |
+    |                'where' => ['deleted_at' => null],
+    |
     */
 
     'subscription' => null,
@@ -266,6 +315,15 @@ return [
     | branch of that client is written — a client is either on or off, never
     | half.
     |
+    | 'where' narrows to the rows this product would itself count. Queries here
+    | do not go through your models, so nothing a model applies for free is
+    | applied — soft deletes above all. Leaving a deleted row in makes this
+    | package report a restriction nobody is enforcing, which shows up as a
+    | disagreement that re-sending will never clear. A column => value map; a
+    | null value means IS NULL:
+    |
+    |       'where' => ['deleted_at' => null],
+    |
     */
 
     'licence' => [
@@ -276,6 +334,8 @@ return [
 
         'status' => null,
         'ceiling' => null,
+
+        'where' => null,
 
         /*
         | Signs every licence message. Issued with the product's API key and
