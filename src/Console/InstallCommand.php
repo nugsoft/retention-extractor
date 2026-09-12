@@ -76,6 +76,15 @@ class InstallCommand extends Command
      */
     private array $hints = [];
 
+    /**
+     * What Retention Intel already knows about where this product keeps its
+     * subscriptions and its licence. Empty when it has nothing, or could not
+     * be asked.
+     *
+     * @var array<string, mixed>
+     */
+    private array $knownMapping = [];
+
     /** The tenant table, for judging whether a candidate can reach a client. */
     private ?string $tenantTable = null;
 
@@ -106,11 +115,14 @@ class InstallCommand extends Command
 
         $metrics = $this->resolveMetrics($schema, $wanted, $tenantTable, $lastActivity);
 
-        $subscription = $this->resolveSubscription($schema, $tenantTable);
+        $remote = $this->offerRemoteMapping();
 
-        $this->writeConfig($product, $tenantTable, $branches, $lastActivity, $metrics, $subscription);
+        $subscription = $remote ? null : $this->resolveSubscription($schema, $tenantTable);
+        $licence = $remote ? null : $this->resolveLicence($schema, $tenantTable);
 
-        $this->printNextSteps($product);
+        $this->writeConfig($product, $tenantTable, $branches, $lastActivity, $metrics, $subscription, $licence, $remote);
+
+        $this->printNextSteps($product, $licence, $remote);
 
         return self::SUCCESS;
     }
@@ -166,6 +178,15 @@ class InstallCommand extends Command
         $product = $contract['product']['code'];
 
         $this->hints = $contract['hints'] ?? [];
+
+        // Asked here because the key has just been proved to work. A failure is
+        // not worth reporting: it only means the offer below is not made, and
+        // the questions get asked the long way instead.
+        try {
+            $this->knownMapping = $api->mapping();
+        } catch (Throwable) {
+            $this->knownMapping = [];
+        }
 
         $this->components->info("Retention Intel knows this key as {$contract['product']['name']}.");
 
@@ -711,6 +732,131 @@ class InstallCommand extends Command
     }
 
     /**
+     * Offer to take the mapping from Retention Intel rather than ask for it.
+     *
+     * Only offered when it actually holds one, because the alternative is a
+     * question whose right answer is "no" and whose consequence is a product
+     * that reports nothing and enforces nothing.
+     *
+     * It is worth offering first. Retention Intel already has these tables
+     * written down for every product it knows, and a schema somebody
+     * rediscovers by answering ten prompts is a schema they can get wrong.
+     * More to the point, a product whose team cannot take a code change has no
+     * other way to be mapped at all.
+     */
+    private function offerRemoteMapping(): bool
+    {
+        $licence = $this->knownMapping['licence'] ?? null;
+        $subscription = $this->knownMapping['subscription'] ?? null;
+
+        if (! is_array($licence) && ! is_array($subscription)) {
+            return false;
+        }
+
+        $this->newLine();
+        $this->components->info('Retention Intel already knows where this product keeps these.');
+
+        foreach (['subscription' => $subscription, 'licence' => $licence] as $name => $mapping) {
+            $this->line(is_array($mapping)
+                ? "  {$name}: {$mapping['table']}"
+                : "  {$name}: nothing recorded");
+        }
+
+        $this->newLine();
+        $this->line('  Taking them from there means a column that moves later is a change');
+        $this->line('  in Retention Intel rather than a change and a deployment here.');
+        $this->newLine();
+
+        return confirm(
+            label: 'Take the subscription and licence mapping from Retention Intel?',
+            default: true,
+        );
+    }
+
+    /**
+     * Where this product records whether a client may work.
+     *
+     * This was never asked. The wizard mapped everything a product sends and
+     * nothing it receives, so an install came out of it with no licence block,
+     * no webhook route mounted, and no sign that anything was missing — the
+     * licence half had to be hand-written afterwards by somebody who knew to.
+     * Both products it has been run against needed exactly that.
+     *
+     * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
+     * @return array<string, mixed>|null
+     */
+    private function resolveLicence(SchemaInspector $schema, ?array $tenant): ?array
+    {
+        $this->newLine();
+        $this->components->info('Now the other direction: switching a client off.');
+        $this->line('  Retention Intel decides whether a client may work and tells this');
+        $this->line('  product. Skip this and licence changes never arrive here.');
+        $this->newLine();
+
+        if (! confirm(label: 'Should Retention Intel be able to switch clients off here?', default: true)) {
+            return null;
+        }
+
+        $table = select(
+            label: 'Which table holds that?',
+            options: $schema->orderByPlausibility($schema->tables(), $tenant['table'] ?? null, $this->branchKey),
+            scroll: 15,
+        );
+
+        // Where the licence lives on the client's own row — Clinic Plus keeps a
+        // word on the facility — the way to the client is that row's own key,
+        // and asking how it reaches itself is a question with no sensible
+        // answer. Only a table beneath the client needs the path worked out.
+        $via = $table === ($tenant['table'] ?? null)
+            ? ($tenant['key'] ?? 'id')
+            : $this->resolveVia($schema, $table, $tenant, 'the licence', allowSkip: false);
+
+        if ($via === 'skip') {
+            return null;
+        }
+
+        $columns = $schema->columns($table);
+
+        $strategy = select(
+            label: 'How does this product say a client may work?',
+            options: [
+                'status' => 'A word in a column — "Active" and "Suspended"',
+                'ceiling' => 'A date that caps access — cleared when they may work',
+            ],
+        );
+
+        $licence = ['table' => $table, 'via' => $via, 'primary_key' => 'id'];
+
+        if ($strategy === 'status') {
+            $column = select(label: 'Which column?', options: $columns, scroll: 15);
+
+            $licence['status'] = [
+                'column' => $column,
+                'granted' => text(label: 'What does it say when they may work?', default: 'Active', required: true),
+                'revoked' => text(label: 'And when they may not?', default: 'Suspended', required: true),
+            ];
+        } else {
+            $licence['ceiling'] = [
+                'column' => select(label: 'Which date column caps access?', options: $columns, scroll: 15),
+            ];
+        }
+
+        // Asked rather than assumed, but asked at all because it is the one
+        // mistake here that is silent. These queries do not go through the
+        // product's models, so a soft-deleted row is still written to and still
+        // read back — reported as a restriction nobody is enforcing, which
+        // shows up as a disagreement no amount of re-sending will clear.
+        if (in_array('deleted_at', $columns, true) && confirm(
+            label: "'{$table}' soft-deletes. Ignore deleted rows?",
+            default: true,
+        )) {
+            $licence['where'] = ['deleted_at' => null];
+        }
+
+        return $licence;
+    }
+
+    /**
      * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
      * @return array<string, mixed>|null
      */
@@ -772,6 +918,8 @@ class InstallCommand extends Command
         array $lastActivity,
         array $metrics,
         ?array $subscription,
+        ?array $licence,
+        bool $remote,
     ): void {
         $path = config_path('retention-extractor.php');
 
@@ -795,6 +943,29 @@ class InstallCommand extends Command
 
         if ($subscription !== null) {
             $stub = $this->replaceLine($stub, "    'subscription' => null,", "    'subscription' => ".$this->export($subscription, 1).',');
+        }
+
+        if ($licence !== null) {
+            foreach ($licence as $key => $value) {
+                // `table` and `via` come back as plain strings; `status`,
+                // `ceiling` and `where` as arrays. Only the second kind wants
+                // the indented multi-line rendering.
+                $rendered = is_array($value) ? $this->export($value, 2) : var_export($value, true);
+
+                $stub = $this->replaceLine(
+                    $stub,
+                    "        '{$key}' => ".($key === 'primary_key' ? "'id'," : 'null,'),
+                    "        '{$key}' => {$rendered},",
+                );
+            }
+        }
+
+        if ($remote) {
+            $stub = $this->replaceLine(
+                $stub,
+                "    'mapping_source' => env('RETENTION_MAPPING_SOURCE', 'local'),",
+                "    'mapping_source' => env('RETENTION_MAPPING_SOURCE', 'remote'),",
+            );
         }
 
         if ($tenant !== null) {
@@ -852,16 +1023,44 @@ class InstallCommand extends Command
         return implode("\n", $lines);
     }
 
-    private function printNextSteps(string $product): void
+    /**
+     * @param  array<string, mixed>|null  $licence
+     */
+    private function printNextSteps(string $product, ?array $licence, bool $remote): void
     {
+        $env = ['RETENTION_API_URL', 'RETENTION_API_KEY', "RETENTION_PRODUCT_CODE={$product}"];
+
+        if ($remote || $licence !== null) {
+            $env[] = 'RETENTION_LICENCE_SECRET';
+        }
+
+        if ($remote) {
+            $env[] = 'RETENTION_MAPPING_SOURCE=remote';
+        }
+
         $this->newLine();
         $this->components->bulletList([
             'Open <fg=cyan>config/retention-extractor.php</> and check every mapping it guessed.',
-            'Add to <fg=cyan>.env</>: RETENTION_API_URL, RETENTION_API_KEY, '
-                ."RETENTION_PRODUCT_CODE={$product}",
+            'Add to <fg=cyan>.env</>: '.implode(', ', $env),
             'Preview what would be sent: <fg=yellow>php artisan retention:push --dry-run</>',
+            'Check the whole setup: <fg=yellow>php artisan retention:status</>',
             'When it looks right, the daily schedule takes over automatically.',
         ]);
+
+        $this->newLine();
+
+        // Said out loud either way. Silence about the half that receives is how
+        // an install ends up pushing happily while every licence change bounces
+        // off a route that was never mounted.
+        match (true) {
+            $remote => $this->components->info('Licence sync: on, mapped from Retention Intel.'),
+            $licence !== null => $this->components->info("Licence sync: on, writing to '{$licence['table']}'."),
+            default => $this->components->warn(
+                'Licence sync: OFF. Nothing can switch a client off here until the '
+                .'`licence` block is filled in. Re-run this command to set it up.'
+            ),
+        };
+
         $this->newLine();
         $this->components->warn('The mappings above are guesses from your schema. A wrong one sends wrong numbers, not an error.');
     }
