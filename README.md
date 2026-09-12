@@ -1,7 +1,7 @@
 # Retention Extractor
 
 Pushes client activity and subscription data from a Laravel product into
-[Retention Intel](https://retention.nugsoft.com), so churn risk is spotted
+[NugsoftOS](https://retention.nugsoft.com), so churn risk is spotted
 before the client leaves.
 
 ## What it does
@@ -19,11 +19,11 @@ php artisan retention:install
 
 `retention:install` reads your schema, proposes a mapping, and writes
 `config/retention-extractor.php`. It covers both directions — what your product
-sends, and how Retention Intel switches a client off here — and it ends by
+sends, and how NugsoftOS switches a client off here — and it ends by
 saying whether licence sync came out on or off, so a half-finished setup says so
 rather than looking finished.
 
-If Retention Intel already knows where your product keeps its subscriptions and
+If NugsoftOS already knows where your product keeps its subscriptions and
 its licence, the wizard offers to take both from there and asks you neither.
 See [Where the mapping lives](#where-the-mapping-lives).
 
@@ -33,7 +33,7 @@ Then add to `.env`:
 RETENTION_API_URL=https://retention.nugsoft.com
 RETENTION_API_KEY=          # issued by the CTO, one per product
 RETENTION_PRODUCT_CODE=poscream
-RETENTION_LICENCE_SECRET=   # only if Retention Intel switches clients off here
+RETENTION_LICENCE_SECRET=   # only if NugsoftOS switches clients off here
 ```
 
 Preview what would be sent, without sending it:
@@ -77,14 +77,14 @@ sits in your `config/retention-extractor.php`, changes go through your review,
 and nothing outside your repository can move it. Right wherever your team owns
 this integration.
 
-**`remote`** — the subscription and licence mappings come from Retention Intel
+**`remote`** — the subscription and licence mappings come from NugsoftOS
 instead:
 
 ```dotenv
 RETENTION_MAPPING_SOURCE=remote
 ```
 
-Leave those two blocks empty locally and Retention Intel answers for them. A
+Leave those two blocks empty locally and NugsoftOS answers for them. A
 column that moves later is then a change there, with no release of this package
 and no deployment of yours.
 
@@ -216,7 +216,7 @@ was found. Nothing errored; the dates were simply two days wrong.
 ### Licences (optional)
 
 Everything above pushes data *out*. This is the one thing that comes back:
-Retention Intel is the master for whether a client may work, and it tells this
+NugsoftOS is the master for whether a client may work, and it tells this
 product when somebody is switched on or off.
 
 Fill it in and two things happen — a signed webhook the moment a licence
@@ -312,12 +312,12 @@ against a datetime string, which MySQL casts to 0 — every row matches and the
 metric reports the whole table while looking entirely reasonable.
 
 **If your product records nothing that means "somebody used this", leave the
-metric out.** Retention Intel asks only for what it scores you on.
+metric out.** NugsoftOS asks only for what it scores you on.
 
-### Metrics Retention Intel scores
+### Metrics NugsoftOS scores
 
 A product is asked for exactly what it is scored on — its `targets` block in
-Retention Intel's `config/health_score.php`, and nothing else. Adding a new
+NugsoftOS's `config/health_score.php`, and nothing else. Adding a new
 product to the system is adding that one block.
 
 | Product | Metrics |

@@ -23,7 +23,7 @@ final readonly class ClientRecord
          *
          * Empty for a client with one location, or a product that does not
          * separate them — which is most of the time. Never scored on its own:
-         * Retention Intel keeps one health score per business.
+         * NugsoftOS keeps one health score per business.
          *
          * @var array<int, BranchRecord>
          */

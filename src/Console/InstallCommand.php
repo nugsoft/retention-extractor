@@ -17,7 +17,7 @@ use function Laravel\Prompts\select;
 use function Laravel\Prompts\text;
 
 /**
- * Walks the developer through mapping their schema onto Retention Intel's
+ * Walks the developer through mapping their schema onto NugsoftOS's
  * metrics, using the database to propose answers rather than asking blind.
  *
  * The result is written to config for review. Nothing is inferred later.
@@ -26,10 +26,10 @@ class InstallCommand extends Command
 {
     protected $signature = 'retention:install {--force : Overwrite an existing config file}';
 
-    protected $description = 'Set up the Retention Intel extractor for this product';
+    protected $description = 'Set up the NugsoftOS extractor for this product';
 
     /**
-     * Metrics Retention Intel scores, by product code.
+     * Metrics NugsoftOS scores, by product code.
      *
      * @var array<string, array<int, string>>
      */
@@ -69,7 +69,7 @@ class InstallCommand extends Command
     ];
 
     /**
-     * Where Retention Intel says this product keeps each metric, and which of
+     * Where NugsoftOS says this product keeps each metric, and which of
      * that table's rows count.
      *
      * @var array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>
@@ -77,7 +77,7 @@ class InstallCommand extends Command
     private array $hints = [];
 
     /**
-     * What Retention Intel already knows about where this product keeps its
+     * What NugsoftOS already knows about where this product keeps its
      * subscriptions and its licence. Empty when it has nothing, or could not
      * be asked.
      *
@@ -97,7 +97,7 @@ class InstallCommand extends Command
     {
         $this->schema = $schema;
 
-        $this->components->info('Retention Intel extractor setup');
+        $this->components->info('NugsoftOS extractor setup');
         $this->line('  Reading your schema to propose a mapping. Nothing is sent anywhere.');
         $this->newLine();
 
@@ -128,9 +128,9 @@ class InstallCommand extends Command
     }
 
     /**
-     * Which product this is, and what Retention Intel needs from it.
+     * Which product this is, and what NugsoftOS needs from it.
      *
-     * Asked of Retention Intel rather than read off a list in here. The list
+     * Asked of NugsoftOS rather than read off a list in here. The list
      * only knew the five products that existed when it was written: a sixth
      * could not be chosen at all, and what it claimed each product reports
      * could drift from what is actually scored with nothing to catch it.
@@ -140,7 +140,7 @@ class InstallCommand extends Command
      * now saves a trip back to the .env between setting up and finding out
      * whether it works.
      *
-     * Falls back to the built-in list when Retention Intel cannot be reached,
+     * Falls back to the built-in list when NugsoftOS cannot be reached,
      * because being offline should not stop somebody mapping their schema. What
      * it must not do is fall back silently: a product outside that list would
      * then be set up against the wrong metrics entirely.
@@ -150,7 +150,7 @@ class InstallCommand extends Command
     private function resolveContract(RetentionClient $api): array
     {
         $url = text(
-            label: 'Where is Retention Intel?',
+            label: 'Where is NugsoftOS?',
             default: (string) config('retention-extractor.api.url'),
             required: true,
         );
@@ -188,7 +188,7 @@ class InstallCommand extends Command
             $this->knownMapping = [];
         }
 
-        $this->components->info("Retention Intel knows this key as {$contract['product']['name']}.");
+        $this->components->info("NugsoftOS knows this key as {$contract['product']['name']}.");
 
         if ($contract['scored'] === false) {
             $this->components->warn(
@@ -201,7 +201,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * The metrics this package shipped knowing about, when Retention Intel
+     * The metrics this package shipped knowing about, when NugsoftOS
      * cannot be asked.
      *
      * Says why it is guessing, and says which products it knows — somebody
@@ -213,7 +213,7 @@ class InstallCommand extends Command
     private function contractFromBuiltInList(string $because): array
     {
         $this->newLine();
-        $this->components->warn("Could not ask Retention Intel what it needs: {$because}");
+        $this->components->warn("Could not ask NugsoftOS what it needs: {$because}");
         $this->line('  Falling back to the list built into this package, which knows only the');
         $this->line('  products that existed when it was released. If yours is newer than that,');
         $this->line('  stop, fix the connection, and run this again.');
@@ -278,7 +278,7 @@ class InstallCommand extends Command
         return [
             'table' => $table,
             'key' => select(
-                label: 'Which column identifies each business to Retention Intel?',
+                label: 'Which column identifies each business to NugsoftOS?',
                 options: $columns,
                 default: $schema->firstPresent($columns, ['uuid', 'code', 'id']) ?? 'id',
                 hint: 'This becomes external_id. It must never change for a given business.',
@@ -301,7 +301,7 @@ class InstallCommand extends Command
     {
         $candidates = $this->rankForMetrics($schema->guessActivityTables(), $wanted);
 
-        // Retention Intel may have been told outright where this product's real
+        // NugsoftOS may have been told outright where this product's real
         // use is recorded, which beats anything guessable from here.
         $hinted = array_values(array_filter(
             $this->hints['last_activity']['tables'] ?? [],
@@ -352,7 +352,7 @@ class InstallCommand extends Command
         $preferred = [];
 
         foreach ($wanted as $metric) {
-            // A metric Retention Intel asks for that this package has never
+            // A metric NugsoftOS asks for that this package has never
             // heard of has no hint, and simply contributes no preference.
             foreach (self::MetricTableHints[$metric] ?? [] as $table) {
                 if (in_array($table, $candidates, true) && ! in_array($table, $preferred, true)) {
@@ -373,7 +373,7 @@ class InstallCommand extends Command
     private function resolveMetrics(SchemaInspector $schema, array $wanted, ?array $tenant, array $lastActivity): array
     {
         $this->newLine();
-        $this->components->info('Now the metrics Retention Intel scores this product on.');
+        $this->components->info('Now the metrics NugsoftOS scores this product on.');
         $this->line('  Pick the table each one is counted from. Choose <fg=yellow>skip</> to leave it out.');
         $this->newLine();
 
@@ -423,7 +423,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * Which rows of this table count, where Retention Intel has said.
+     * Which rows of this table count, where NugsoftOS has said.
      *
      * Naming a table is not always enough. School Monitor writes the same
      * `auth` action for logging in, logging out, changing a password and
@@ -461,7 +461,7 @@ class InstallCommand extends Command
      * to be walked through a two-step hop by hand. With it, those tables reach
      * the school through its branches and nothing needs asking at all.
      *
-     * A branch is never a client. Retention Intel keeps one health score and
+     * A branch is never a client. NugsoftOS keeps one health score and
      * one watchlist entry per business, whichever level the product bills.
      *
      * @param  array{table: string, key: string, name: string, model: string}|null  $tenant
@@ -511,7 +511,7 @@ class InstallCommand extends Command
                 scroll: 12,
             ),
             'external_id' => select(
-                label: 'Which column identifies each branch to Retention Intel?',
+                label: 'Which column identifies each branch to NugsoftOS?',
                 options: $columns,
                 default: $schema->firstPresent($columns, ['uuid', 'code', 'id']) ?? 'id',
                 hint: 'Like the business identifier: it must never change for a given branch.',
@@ -689,7 +689,7 @@ class InstallCommand extends Command
      */
     private function defaultTableFor(string $metric, array $tables): string
     {
-        // Retention Intel first. Table names are knowledge about a product, and
+        // NugsoftOS first. Table names are knowledge about a product, and
         // it is where that knowledge is kept and corrected — no release of this
         // package is needed to teach it a new one.
         foreach ($this->hints[$metric]['tables'] ?? [] as $candidate) {
@@ -726,19 +726,19 @@ class InstallCommand extends Command
         // attendance records, already selected. A default is accepted far more
         // often than it is read.
         //
-        // Skipping is recoverable and loud — Retention Intel refuses a push
+        // Skipping is recoverable and loud — NugsoftOS refuses a push
         // missing a metric it scores, and names it. A wrong table is silent.
         return 'skip';
     }
 
     /**
-     * Offer to take the mapping from Retention Intel rather than ask for it.
+     * Offer to take the mapping from NugsoftOS rather than ask for it.
      *
      * Only offered when it actually holds one, because the alternative is a
      * question whose right answer is "no" and whose consequence is a product
      * that reports nothing and enforces nothing.
      *
-     * It is worth offering first. Retention Intel already has these tables
+     * It is worth offering first. NugsoftOS already has these tables
      * written down for every product it knows, and a schema somebody
      * rediscovers by answering ten prompts is a schema they can get wrong.
      * More to the point, a product whose team cannot take a code change has no
@@ -754,7 +754,7 @@ class InstallCommand extends Command
         }
 
         $this->newLine();
-        $this->components->info('Retention Intel already knows where this product keeps these.');
+        $this->components->info('NugsoftOS already knows where this product keeps these.');
 
         foreach (['subscription' => $subscription, 'licence' => $licence] as $name => $mapping) {
             $this->line(is_array($mapping)
@@ -764,11 +764,11 @@ class InstallCommand extends Command
 
         $this->newLine();
         $this->line('  Taking them from there means a column that moves later is a change');
-        $this->line('  in Retention Intel rather than a change and a deployment here.');
+        $this->line('  in NugsoftOS rather than a change and a deployment here.');
         $this->newLine();
 
         return confirm(
-            label: 'Take the subscription and licence mapping from Retention Intel?',
+            label: 'Take the subscription and licence mapping from NugsoftOS?',
             default: true,
         );
     }
@@ -789,11 +789,11 @@ class InstallCommand extends Command
     {
         $this->newLine();
         $this->components->info('Now the other direction: switching a client off.');
-        $this->line('  Retention Intel decides whether a client may work and tells this');
+        $this->line('  NugsoftOS decides whether a client may work and tells this');
         $this->line('  product. Skip this and licence changes never arrive here.');
         $this->newLine();
 
-        if (! confirm(label: 'Should Retention Intel be able to switch clients off here?', default: true)) {
+        if (! confirm(label: 'Should NugsoftOS be able to switch clients off here?', default: true)) {
             return null;
         }
 
@@ -1053,7 +1053,7 @@ class InstallCommand extends Command
         // an install ends up pushing happily while every licence change bounces
         // off a route that was never mounted.
         match (true) {
-            $remote => $this->components->info('Licence sync: on, mapped from Retention Intel.'),
+            $remote => $this->components->info('Licence sync: on, mapped from NugsoftOS.'),
             $licence !== null => $this->components->info("Licence sync: on, writing to '{$licence['table']}'."),
             default => $this->components->warn(
                 'Licence sync: OFF. Nothing can switch a client off here until the '

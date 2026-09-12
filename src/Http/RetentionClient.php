@@ -10,7 +10,7 @@ use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Exceptions\PushFailedException;
 
 /**
- * Talks to the Retention Intel ingestion API.
+ * Talks to the NugsoftOS ingestion API.
  *
  * Both endpoints are idempotent, so a retry after a timeout is safe — re-sending
  * the same day's snapshot replaces it rather than duplicating.
@@ -71,7 +71,7 @@ class RetentionClient
     }
 
     /**
-     * What Retention Intel needs from this product.
+     * What NugsoftOS needs from this product.
      *
      * Asked rather than assumed. This package used to carry its own list of the
      * metrics each of five products reports, so a product added to Retention

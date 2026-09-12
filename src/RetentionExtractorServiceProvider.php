@@ -50,7 +50,7 @@ class RetentionExtractorServiceProvider extends ServiceProvider
         ));
 
         // Resolved through the mapping rather than straight from config, so an
-        // install told to ask Retention Intel where things live gets the same
+        // install told to ask NugsoftOS where things live gets the same
         // applier as one that was configured by hand.
         $this->app->bind(LicenceApplier::class, fn ($app): LicenceApplier => new LicenceApplier(
             $app->make(ProductMapping::class)->licence(),

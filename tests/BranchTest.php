@@ -14,7 +14,7 @@ use Nugsoft\RetentionExtractor\Extraction\SnapshotBuilder;
  * and 15 carry `school_id`. Without this a client's figure could fall by a
  * third and nothing could say which branch had stopped.
  *
- * A branch is never a client. Retention Intel keeps one health score and one
+ * A branch is never a client. NugsoftOS keeps one health score and one
  * watchlist entry per business; this is the breakdown behind that number.
  */
 beforeEach(function (): void {

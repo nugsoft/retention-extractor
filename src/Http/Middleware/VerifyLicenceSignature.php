@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Proves a licence webhook came from Retention Intel.
+ * Proves a licence webhook came from NugsoftOS.
  *
  * This endpoint switches paying clients off, so an unsigned one would let
  * anybody who found the URL do the same. Verified over the raw body rather

@@ -18,7 +18,7 @@ use Throwable;
  * whose team owns this integration: the mapping sits in their repository,
  * changes go through their review, and nothing outside can move it.
  *
- * `remote` asks Retention Intel. That exists because for some products the
+ * `remote` asks NugsoftOS. That exists because for some products the
  * first option is not available at any price — a team with its own roadmap, an
  * install nobody there can deploy to. The package goes in once and everything
  * after has to be answerable from the other side, or it is not answerable.
