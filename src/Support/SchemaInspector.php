@@ -29,7 +29,7 @@ class SchemaInspector
      * Clinic Plus, `clients` is the patient table, and guessing it as the
      * tenant would have scoped every figure to the wrong thing.
      */
-    private const array TenantCandidates = [
+    private const TenantCandidates = [
         'businesses', 'tenants', 'facilities', 'companies', 'organisations',
         'organizations', 'schools', 'clinics', 'saccos', 'shops', 'stores',
         'branches', 'accounts', 'clients', 'customers',
@@ -40,7 +40,7 @@ class SchemaInspector
      *
      * @var array<int, string>
      */
-    private const array TenantKeyCandidates = [
+    private const TenantKeyCandidates = [
         'business_id', 'tenant_id', 'facility_id', 'company_id', 'organisation_id',
         'organization_id', 'school_id', 'clinic_id', 'sacco_id', 'shop_id',
         'store_id', 'branch_id', 'account_id', 'client_id', 'customer_id',
@@ -51,7 +51,7 @@ class SchemaInspector
      *
      * @var array<int, string>
      */
-    private const array ActivityCandidates = [
+    private const ActivityCandidates = [
         'sales', 'orders', 'transactions', 'invoices', 'receipts', 'payments',
         'client_visits', 'visits', 'appointments', 'outpatient_consultations',
         'consultations', 'laboratory_orders', 'visit_prescriptions', 'prescriptions',

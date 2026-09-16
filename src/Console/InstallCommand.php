@@ -33,7 +33,7 @@ class InstallCommand extends Command
      *
      * @var array<string, array<int, string>>
      */
-    private const array ProductMetrics = [
+    private const ProductMetrics = [
         'poscream' => ['items_sold_7d', 'transactions_7d', 'transaction_value_7d'],
         'poscafe' => ['items_sold_7d', 'transactions_7d', 'transaction_value_7d'],
         'clinic_plus' => ['visits_7d', 'lab_requests_7d', 'prescriptions_7d', 'new_patients_7d'],
@@ -50,7 +50,7 @@ class InstallCommand extends Command
      *
      * @var array<string, array<int, string>>
      */
-    private const array MetricTableHints = [
+    private const MetricTableHints = [
         'login_count_7d' => ['sessions', 'logins', 'login_logs', 'user_sessions', 'users'],
         'items_sold_7d' => ['sale_items', 'order_items', 'line_items'],
         'transactions_7d' => ['sales', 'transactions', 'orders'],
@@ -910,6 +910,7 @@ class InstallCommand extends Command
      * @param  array<string, mixed>  $lastActivity
      * @param  array<string, array<string, mixed>>  $metrics
      * @param  array<string, mixed>|null  $subscription
+     * @param  array<string, mixed>|null  $licence
      */
     private function writeConfig(
         string $product,
