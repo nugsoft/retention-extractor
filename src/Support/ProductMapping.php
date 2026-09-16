@@ -43,9 +43,9 @@ class ProductMapping
      * that a correction made centrally is live the same morning. The pull
      * refreshes it outright, so a change that cannot wait has a lever.
      */
-    public const int CacheSeconds = 1800;
+    public const CacheSeconds = 1800;
 
-    public const string CacheKey = 'retention-extractor.mapping';
+    public const CacheKey = 'retention-extractor.mapping';
 
     public function __construct(private readonly RetentionClient $api) {}
 

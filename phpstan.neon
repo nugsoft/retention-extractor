@@ -7,6 +7,25 @@ parameters:
     paths:
         - src
 
+    # The range composer.json promises, checked rather than trusted.
+    #
+    # This package is installed into products on hosting nobody here controls,
+    # which is the whole reason it exists — so the oldest PHP it claims to
+    # support is a promise to somebody who cannot take it back. Everyone who
+    # develops it is on 8.4, where syntax newer than the promise parses fine
+    # and ships.
+    #
+    # It already did: `private const array ProductMetrics` is PHP 8.3 syntax,
+    # composer installed the package onto an 8.2 server exactly as advertised,
+    # and `php artisan retention:install` died with a ParseError before it
+    # could print anything. Nothing local could have caught it.
+    #
+    # `min` is what matters; `max` catches anything removed in a version newer
+    # than the team's. Raise both only alongside the composer constraint.
+    phpVersion:
+        min: 80200
+        max: 80400
+
     # Laravel Prompts declares select(), confirm() and the rest inside
     # function_exists() guards in a files-autoloaded helper, which PHPStan will
     # not resolve however it is pointed at them. So it cannot check the
