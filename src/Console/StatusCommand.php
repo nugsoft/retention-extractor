@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Http\RetentionClient;
 use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
+use Nugsoft\RetentionExtractor\Support\ApiKeyShape;
 use Nugsoft\RetentionExtractor\Support\ProductMapping;
 use Throwable;
 
@@ -43,6 +44,12 @@ class StatusCommand extends Command
                 : 'not set')],
         ];
 
+        // Before whether NugsoftOS accepted the key: a key of the wrong shape
+        // is refused there with a bare 401, which reads identically to one that
+        // was revoked. Said here, the difference is visible without a round
+        // trip — and this is the line somebody is looking at when it happens.
+        $rows[] = ['API key', $this->describeKey()];
+
         [$reachable, $identifiedAs] = $this->askWhoWeAre($api);
 
         $rows[] = ['Key recognised', $identifiedAs];
@@ -65,6 +72,28 @@ class StatusCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The key's shape, never the key.
+     *
+     * Read through config() rather than env() on purpose: config is what is
+     * actually sent, and a cached config holding yesterday's key is exactly
+     * the fault this line exists to make visible.
+     */
+    private function describeKey(): string
+    {
+        $key = config('retention-extractor.api.key');
+
+        if (blank($key)) {
+            return 'not set';
+        }
+
+        $key = trim((string) $key);
+
+        return ApiKeyShape::isWellFormed($key)
+            ? 'set — '.ApiKeyShape::Length.' lowercase hex characters'
+            : 'WRONG SHAPE — '.ApiKeyShape::describe($key).', so NugsoftOS will refuse it unread';
     }
 
     /**

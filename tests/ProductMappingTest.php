@@ -17,11 +17,17 @@ use Nugsoft\RetentionExtractor\Support\ProductMapping;
  * cannot take a change at all, where the package goes in once and everything
  * after has to be answerable from the other side.
  */
+/**
+ * `api.key` is a real-shaped key — 64 lowercase hex — rather than a label.
+ * The client checks the shape before it sends, the way NugsoftOS checks it
+ * before it looks one up, so a placeholder here would be testing a
+ * configuration that could never have authenticated.
+ */
 function remoteMapping(array $body): void
 {
     config()->set('retention-extractor.mapping_source', 'remote');
     config()->set('retention-extractor.api.url', 'https://retention.test');
-    config()->set('retention-extractor.api.key', 'a-product-key');
+    config()->set('retention-extractor.api.key', str_repeat('b', 64));
 
     Http::fake(['https://retention.test/api/v1/mapping' => Http::response($body)]);
 }
@@ -146,7 +152,7 @@ describe('when NugsoftOS cannot be reached', function (): void {
         config()->set('retention-extractor.licence', ['secret' => 'a-signing-key']);
         config()->set('retention-extractor.mapping_source', 'remote');
         config()->set('retention-extractor.api.url', 'https://retention.test');
-        config()->set('retention-extractor.api.key', 'a-product-key');
+        config()->set('retention-extractor.api.key', str_repeat('b', 64));
 
         Http::fake(['https://retention.test/api/v1/mapping' => Http::response('down', 503)]);
 

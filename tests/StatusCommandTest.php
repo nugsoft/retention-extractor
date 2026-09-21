@@ -82,3 +82,33 @@ describe('reporting what is wired up', function (): void {
             ->assertSuccessful();
     });
 });
+
+describe('the key, before NugsoftOS is asked about it', function (): void {
+    it('says the key is the right shape', function (): void {
+        identifiedByNugsoftOS();
+
+        $this->artisan('retention:status')
+            ->expectsOutputToContain('64 lowercase hex characters')
+            ->assertSuccessful();
+    });
+
+    it('says so when the key could never authenticate, without printing it', function (): void {
+        // The shape is checked here rather than guessed from a 401, which is
+        // what NugsoftOS answers for a malformed key and for a revoked one
+        // alike.
+        config()->set('retention-extractor.api.key', str_repeat('a', 12));
+
+        $this->artisan('retention:status')
+            ->expectsOutputToContain('WRONG SHAPE')
+            ->doesntExpectOutputToContain(str_repeat('a', 12))
+            ->assertFailed();
+    });
+
+    it('says when there is no key at all', function (): void {
+        config()->set('retention-extractor.api.key', null);
+
+        $this->artisan('retention:status')
+            ->expectsOutputToContain('not set')
+            ->assertFailed();
+    });
+});
