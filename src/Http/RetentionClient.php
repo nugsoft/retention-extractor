@@ -52,7 +52,7 @@ class RetentionClient
         $response = $this->request()->get($this->url($endpoint));
 
         if ($response->failed()) {
-            throw PushFailedException::fromResponse($endpoint, $response->status(), $response->body());
+            throw PushFailedException::fromResponse('GET', $endpoint, $response->status(), $response->body());
         }
 
         /** @var array{product?: string, as_of?: string, licences?: array<int, array<string, mixed>>} $body */
@@ -95,7 +95,7 @@ class RetentionClient
         $response = $this->request()->get($this->url('/api/v1/metrics'));
 
         if ($response->failed()) {
-            throw PushFailedException::fromResponse('/api/v1/metrics', $response->status(), $response->body());
+            throw PushFailedException::fromResponse('GET', '/api/v1/metrics', $response->status(), $response->body());
         }
 
         /** @var array{product: array{code: string, name: string}, scored: bool, required: array<int, string>, accepted: array<int, string>, components: array<int, string>, hints: array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>} $contract */
@@ -120,7 +120,7 @@ class RetentionClient
         $response = $this->request()->get($this->url('/api/v1/mapping'));
 
         if ($response->failed()) {
-            throw PushFailedException::fromResponse('/api/v1/mapping', $response->status(), $response->body());
+            throw PushFailedException::fromResponse('GET', '/api/v1/mapping', $response->status(), $response->body());
         }
 
         /** @var array<string, mixed> $mapping */
@@ -138,13 +138,26 @@ class RetentionClient
         $response = $this->request()->post($this->url($endpoint), $payload);
 
         if ($response->failed()) {
-            throw PushFailedException::fromResponse($endpoint, $response->status(), $response->body());
+            throw PushFailedException::fromResponse('POST', $endpoint, $response->status(), $response->body());
         }
 
         return $response->json() ?? [];
     }
 
-    private function request(): PendingRequest
+    /**
+     * The key, checked here rather than discovered at the far end.
+     *
+     * NugsoftOS refuses anything that is not 64 lowercase hex characters
+     * before it looks the key up, and answers a bare 401 — which this package
+     * then reports as "the API key was not recognised", sending somebody to
+     * check a key that is already correct. A trailing newline in `.env` is
+     * enough to cause it, and nothing in the round trip says so.
+     *
+     * Surrounding whitespace is forgiven rather than reported: it comes from
+     * the file, not from the person, and there is nothing to decide about it.
+     * Anything else is named here, while the key is still in front of us.
+     */
+    private function apiKey(): string
     {
         $key = config('retention-extractor.api.key');
 
@@ -155,8 +168,19 @@ class RetentionClient
             );
         }
 
+        $key = trim((string) $key);
+
+        if (preg_match('/^[0-9a-f]{64}$/', $key) !== 1) {
+            throw ConfigurationException::malformedApiKey($key);
+        }
+
+        return $key;
+    }
+
+    private function request(): PendingRequest
+    {
         return $this->http
-            ->withToken($key)
+            ->withToken($this->apiKey())
             ->acceptJson()
             ->asJson()
             ->timeout((int) config('retention-extractor.api.timeout', 15))
