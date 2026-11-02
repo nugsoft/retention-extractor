@@ -172,6 +172,20 @@ The newest row here decides how dormant a client looks, which is the strongest
 churn signal in the system. Point it at the table that best represents genuine
 use of your product.
 
+The date is sent as a **UTC** day, because that is how NugsoftOS counts them
+and it refuses a date after its own today. Your rows are read in `app.timezone`,
+which is what Eloquent writes them in; if your database stores UTC while your
+app runs on local time, say so:
+
+```dotenv
+RETENTION_TIMEZONE=UTC
+```
+
+Before this, a product on Kampala time pushing at 02:00 sent "tomorrow" for any
+client active after midnight, and that client's whole snapshot was refused.
+Nothing later than today is ever sent, so a row dated in the future — a booked
+appointment, say — reads as today rather than costing the client the night.
+
 A client with no rows at all is reported as long dormant rather than skipped —
 never reporting them would hide exactly the clients most at risk.
 

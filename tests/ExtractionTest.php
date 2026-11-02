@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Exceptions\PushFailedException;
 use Nugsoft\RetentionExtractor\Extraction\ClientResolver;
@@ -183,6 +185,73 @@ describe('the activity payload', function (): void {
     });
 });
 
+function saleAt(int $businessId, string $storedAs): void
+{
+    DB::table('sales')->insert([
+        'business_id' => $businessId,
+        'total' => 1,
+        'created_at' => $storedAs,
+        'updated_at' => $storedAs,
+    ]);
+}
+
+function lastActivitySent(): string
+{
+    $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+    return app(SnapshotBuilder::class)->activityPayload($client)['last_activity_date'];
+}
+
+describe('the activity date NugsoftOS is sent', function (): void {
+    /*
+     * NugsoftOS keeps its day in UTC and refuses a last_activity_date after
+     * it. A product on Kampala time pushes at 02:00 local — 23:00 UTC the day
+     * before — so a client who sold anything after midnight used to send
+     * "tomorrow", and the whole of their snapshot was refused for the night.
+     */
+    beforeEach(function (): void {
+        multiTenantConfig();
+        $this->business = makeBusiness();
+
+        config()->set('app.timezone', 'Africa/Kampala');
+
+        // 02:00 on the 3rd in Kampala.
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 23:00:00', 'UTC'));
+    });
+
+    it('sends the UTC date of activity after local midnight', function (): void {
+        // 00:30 on the 3rd in Kampala is 21:30 on the 2nd in UTC.
+        saleAt($this->business->id, '2026-11-03 00:30:00');
+
+        expect(lastActivitySent())->toBe('2026-11-02');
+    });
+
+    it('reads the database in the timezone it is said to store in', function (): void {
+        // A product whose app runs on local time but whose rows are written
+        // in UTC says so, rather than having them shifted a second time.
+        config()->set('retention-extractor.timezone', 'UTC');
+        saleAt($this->business->id, '2026-11-02 21:30:00');
+
+        expect(lastActivitySent())->toBe('2026-11-02');
+    });
+
+    it('leaves a bare date as it is', function (): void {
+        // A date has no time to convert. Read as local midnight it would
+        // come out a day early.
+        saleAt($this->business->id, '2026-11-01');
+
+        expect(lastActivitySent())->toBe('2026-11-01');
+    });
+
+    it('never sends a date after today, even for a row dated in the future', function (): void {
+        // A booked appointment in the table that measures activity. One such
+        // row used to cost the client the whole night's snapshot.
+        saleAt($this->business->id, '2026-11-20 09:00:00');
+
+        expect(lastActivitySent())->toBe('2026-11-02');
+    });
+});
+
 describe('the subscription payload', function (): void {
     beforeEach(function (): void {
         multiTenantConfig();
@@ -327,6 +396,30 @@ describe('talking to the API', function (): void {
 
         expect(fn () => app(RetentionClient::class)->pushActivity([]))
             ->toThrow(PushFailedException::class, 'rejected the payload');
+    });
+
+    it('does not resend a payload NugsoftOS has refused', function (): void {
+        // A 422 is an answer, not a hiccup: the same body gets the same reply,
+        // so retrying it is three refusals instead of one.
+        Http::fake(['*' => Http::response(['message' => 'The given data was invalid.'], 422)]);
+
+        expect(fn () => app(RetentionClient::class)->pushActivity([]))->toThrow(PushFailedException::class);
+
+        Http::assertSentCount(1);
+    });
+
+    it('still retries when NugsoftOS is having trouble', function (): void {
+        Sleep::fake();
+        config()->set('retention-extractor.api.retries', 3);
+
+        Http::fakeSequence()
+            ->push(['message' => 'Server Error'], 503)
+            ->push(['message' => 'Server Error'], 503)
+            ->push(['message' => 'Activity snapshot recorded.'], 200);
+
+        app(RetentionClient::class)->pushActivity(['external_id' => 'X']);
+
+        Http::assertSentCount(3);
     });
 
     it('refuses to send without an API key', function (): void {
