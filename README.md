@@ -321,6 +321,24 @@ login:
 ],
 ```
 
+A login table that names only the user can narrow the users it passes through
+with a fourth element on the hop. Clinic Plus's support staff sign in to help a
+facility, and are not that facility using the product:
+
+```php
+'login_count_7d' => [
+    'table' => 'user_auth_logs',
+    'distinct' => 'user_id',
+    'via' => ['user_id' => ['users', 'id', 'facility_id', ['is_support' => false]]],
+    'date' => 'login_at',
+    'where' => ['deleted_at' => null],
+],
+```
+
+Where branches are configured, a metric whose table has no branch column is
+left out of each branch's figures and reported for the client only. A sign-in
+belongs to a person, not a branch.
+
 `date_format` matters more than it looks. Without it a unix column is compared
 against a datetime string, which MySQL casts to 0 — every row matches and the
 metric reports the whole table while looking entirely reasonable.

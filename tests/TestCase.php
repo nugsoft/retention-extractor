@@ -168,6 +168,8 @@ abstract class TestCase extends Orchestra
             $table->id();
             $table->foreignId('business_id');
             $table->string('name');
+            // Clinic Plus's own: staff who sign in to help, not to work.
+            $table->boolean('is_support')->default(false);
         });
 
         // The package's own migration, run rather than reproduced here, so the
