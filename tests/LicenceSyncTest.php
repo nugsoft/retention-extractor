@@ -95,6 +95,48 @@ describe('writing a word, the way Clinic Plus does', function (): void {
     });
 });
 
+describe('a client known by a word rather than a number', function (): void {
+    /*
+     * NugsoftOS lowercases every external_id it is sent, so a client pushed
+     * as "Kampala-Clinic" comes back as "kampala-clinic". On a column that
+     * compares case-sensitively the licence used to match nothing, and the
+     * reply — "No matching client here", applied — read on the other side as
+     * delivered.
+     */
+    beforeEach(function (): void {
+        withStatusLicence();
+        config()->set('retention-extractor.licence.via', 'name');
+        DB::table('facilities')->insert(['id' => 1, 'name' => 'Kampala-Clinic', 'status' => 'Active']);
+        DB::table('facilities')->insert(['id' => 2, 'name' => 'Jinja-Clinic', 'status' => 'Active']);
+    });
+
+    it('finds the client whatever case NugsoftOS sends the id back in', function (): void {
+        $changed = applier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => 'kampala-clinic',
+            'grants_access' => false,
+        ])));
+
+        expect($changed)->toBe(1)
+            ->and(DB::table('facilities')->where('id', 1)->value('status'))->toBe('Suspend')
+            ->and(DB::table('facilities')->where('id', 2)->value('status'))->toBe('Active')
+            ->and(applier()->grantsAccess('kampala-clinic'))->toBeFalse();
+    });
+
+    it('prefers the exact spelling where the product holds both', function (): void {
+        // Two rows differing only by case are two clients to this product.
+        // The fallback exists for a miss, never to widen a match.
+        DB::table('facilities')->insert(['id' => 3, 'name' => 'kampala-clinic', 'status' => 'Active']);
+
+        applier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => 'kampala-clinic',
+            'grants_access' => false,
+        ])));
+
+        expect(DB::table('facilities')->where('id', 3)->value('status'))->toBe('Suspend')
+            ->and(DB::table('facilities')->where('id', 1)->value('status'))->toBe('Active');
+    });
+});
+
 describe('capping a date, the way School Monitor does', function (): void {
     beforeEach(function (): void {
         withCeilingLicence();

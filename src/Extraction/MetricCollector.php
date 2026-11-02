@@ -64,11 +64,55 @@ class MetricCollector
 
         // A unix column read as a string would give '1756...' — a date somewhere
         // in the year 1756, which is not obviously wrong enough to be noticed.
+        // A timestamp is an instant, so its UTC day is the only one to name.
         if (($mapping['date_format'] ?? null) === 'timestamp') {
-            return Carbon::createFromTimestamp((int) $value)->toDateString();
+            return self::noLaterThanToday(Carbon::createFromTimestamp((int) $value, 'UTC')->toDateString());
         }
 
-        return substr((string) $value, 0, 10);
+        $stored = (string) $value;
+
+        // A bare date names a day and carries no time to convert. Read as
+        // midnight in the product's timezone it would come out a day early.
+        if (strlen($stored) === 10) {
+            return self::noLaterThanToday($stored);
+        }
+
+        return self::noLaterThanToday(
+            Carbon::parse($stored, self::databaseTimezone())->utc()->toDateString(),
+        );
+    }
+
+    /**
+     * The day NugsoftOS will accept, which is UTC's.
+     *
+     * NugsoftOS refuses a last_activity_date after its own today, and its day
+     * is UTC's. A product on Kampala time pushes at 02:00 local — 23:00 UTC
+     * the day before — so the local date of anything sold after midnight is
+     * "tomorrow" there, and the whole snapshot was refused with it. Converting
+     * covers that; capping covers the row dated in the future, a booked
+     * appointment in the table that measures activity, which would otherwise
+     * cost the client a night's figures for a fact about next week.
+     */
+    private static function noLaterThanToday(string $date): string
+    {
+        $today = Carbon::now('UTC')->toDateString();
+
+        return $date > $today ? $today : $date;
+    }
+
+    /**
+     * The timezone the product's database writes its datetimes in.
+     *
+     * The application's own unless configured otherwise. Eloquent writes
+     * timestamps in `app.timezone`, which is right for nearly every product;
+     * one whose rows are written in UTC while its app runs on local time says
+     * so, rather than having every date shifted a second time.
+     */
+    private static function databaseTimezone(): string
+    {
+        $timezone = config('retention-extractor.timezone') ?: config('app.timezone');
+
+        return is_string($timezone) && $timezone !== '' ? $timezone : 'UTC';
     }
 
     /**

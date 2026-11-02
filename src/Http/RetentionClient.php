@@ -6,8 +6,10 @@ namespace Nugsoft\RetentionExtractor\Http;
 
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Exceptions\PushFailedException;
+use Throwable;
 
 /**
  * Talks to the NugsoftOS ingestion API.
@@ -65,7 +67,7 @@ class RetentionClient
     {
         try {
             return $this->request()->get($this->url('/api/v1/health'))->successful();
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -190,7 +192,25 @@ class RetentionClient
                 (int) config('retention-extractor.api.retries', 3),
                 throw: false,
                 sleepMilliseconds: fn (int $attempt): int => $attempt * 500,
+                when: self::isWorthRetrying(...),
             );
+    }
+
+    /**
+     * Whether trying the same request again could get a different answer.
+     *
+     * A connection that failed, a server error, being told to slow down: all
+     * of those pass. A refusal does not — a 422 for an invalid payload, a 401
+     * for a key nobody recognises — because the same body meets the same rule,
+     * and retrying turned every refused push into three.
+     */
+    private static function isWorthRetrying(Throwable $exception): bool
+    {
+        if (! $exception instanceof RequestException) {
+            return true;
+        }
+
+        return $exception->response->serverError() || $exception->response->status() === 429;
     }
 
     private function url(string $endpoint): string

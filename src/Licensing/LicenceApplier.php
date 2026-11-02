@@ -180,20 +180,49 @@ class LicenceApplier
         $key = $this->primaryKey();
 
         if (is_string($via)) {
-            return $this->only(DB::table($table)->where($via, $externalId))->pluck($key)->all();
+            return $this->naming($this->only(DB::table($table)), $via, $externalId)->pluck($key)->all();
         }
 
         /** @var array<string, array<int, string>> $via */
         $localColumn = (string) array_key_first($via);
         [$parentTable, $parentKey, $parentVia] = $via[$localColumn];
 
-        $parentIds = DB::table($parentTable)->where($parentVia, $externalId)->pluck($parentKey);
+        $parentIds = $this->naming(DB::table($parentTable), $parentVia, $externalId)->pluck($parentKey);
 
         if ($parentIds->isEmpty()) {
             return [];
         }
 
         return $this->only(DB::table($table)->whereIn($localColumn, $parentIds))->pluck($key)->all();
+    }
+
+    /**
+     * Rows whose column names this client, in whatever case the product
+     * wrote it.
+     *
+     * NugsoftOS lowercases every external_id it is sent, so the one it sends
+     * back is not always the one this product holds: a client pushed as
+     * "Kampala-Clinic" is answered about as "kampala-clinic". On a column that
+     * compares case-sensitively that matched nothing, and the reply — "No
+     * matching client here", applied — read on the other side as delivered.
+     *
+     * The exact spelling is still asked first and wins wherever it matches, so
+     * two rows differing only by case stay two clients and the usual lookup
+     * keeps its index. The second question is only worth asking for an id with
+     * letters in it; a number has no case to differ by.
+     */
+    private function naming(Builder $query, string $column, string $externalId): Builder
+    {
+        $exact = (clone $query)->where($column, $externalId);
+
+        if (preg_match('/\p{L}/u', $externalId) !== 1 || $exact->exists()) {
+            return $exact;
+        }
+
+        return $query->whereRaw(
+            'LOWER('.$query->getGrammar()->wrap($column).') = ?',
+            [mb_strtolower($externalId)],
+        );
     }
 
     /**

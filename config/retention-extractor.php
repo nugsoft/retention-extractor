@@ -246,6 +246,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | The timezone your database writes datetimes in
+    |--------------------------------------------------------------------------
+    |
+    | NugsoftOS counts days in UTC, so the last activity date is converted
+    | to UTC before it is sent. Null reads your rows in `app.timezone`, which
+    | is what Eloquent writes them in. Set this only where the two differ —
+    | an app on Africa/Kampala whose database stores UTC, for example.
+    |
+    | Bare dates are sent as they are: a day has no time to convert.
+    |
+    */
+
+    'timezone' => env('RETENTION_TIMEZONE'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Subscriptions (optional)
     |--------------------------------------------------------------------------
     |
