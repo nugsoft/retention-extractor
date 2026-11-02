@@ -190,3 +190,41 @@ describe('last activity read from a unix column', function (): void {
             ->toBe(now()->subDays(3)->toDateString());
     });
 });
+
+/**
+ * Clinic Plus's support staff sign in to impersonate a facility's user, and
+ * their own rows carry whichever facility they were created under. Counted,
+ * they make one facility look busier than it is every time somebody helps it.
+ */
+describe('a filter on the table a hop passes through', function (): void {
+    beforeEach(function (): void {
+        config()->set('retention-extractor.metrics.login_count_7d', [
+            'table' => 'audit_trail',
+            'distinct' => 'user_id',
+            'via' => ['user_id' => ['users', 'id', 'business_id', ['is_support' => false]]],
+            'date' => 'created_at',
+            'where' => ['action' => 'login'],
+        ]);
+    });
+
+    it('counts only the people the filter describes', function (): void {
+        $nurse = makeUser($this->acme->id, 'Nurse Grace');
+        $support = DB::table('users')->insertGetId([
+            'business_id' => $this->acme->id, 'name' => 'Nugsoft Support', 'is_support' => true,
+        ]);
+
+        makeAuditEntry($this->acme->id, $nurse, 'login', daysAgo: 1);
+        makeAuditEntry($this->acme->id, $support, 'login', daysAgo: 1);
+
+        expect(loginCountFor($this->acme))->toBe(1);
+    });
+
+    it('still keeps one client\'s people out of another\'s count', function (): void {
+        makeAuditEntry($this->acme->id, makeUser($this->acme->id, 'Nurse Grace'), 'login', daysAgo: 1);
+        makeAuditEntry($this->other->id, makeUser($this->other->id, 'Rival Nurse'), 'login', daysAgo: 1);
+        makeAuditEntry($this->other->id, makeUser($this->other->id, 'Rival Doctor'), 'login', daysAgo: 1);
+
+        expect(loginCountFor($this->acme))->toBe(1)
+            ->and(loginCountFor($this->other))->toBe(2);
+    });
+});

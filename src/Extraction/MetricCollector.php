@@ -27,6 +27,13 @@ class MetricCollector
     ) {}
 
     /**
+     * Whether each table records a branch, asked once per table per run.
+     *
+     * @var array<string, bool>
+     */
+    private array $recordsBranch = [];
+
+    /**
      * @return array<string, int|float>
      */
     public function collect(ClientRecord $client, ?BranchRecord $branch = null): array
@@ -34,6 +41,16 @@ class MetricCollector
         $values = [];
 
         foreach ($this->metrics as $name => $mapping) {
+            // A branch's share can only be read from a table that says which
+            // branch a row belongs to. Elsewhere the metric is left out of the
+            // branch rather than refused: MySQL rejects the unknown column and
+            // the whole snapshot goes with it, while SQLite quietly reads the
+            // name as a string and reports nothing. The client's own figure
+            // still carries it.
+            if ($branch !== null && ! $this->recordsBranch((string) ($mapping['table'] ?? ''))) {
+                continue;
+            }
+
             $values[$name] = $this->aggregate($name, $mapping, $client, $branch);
         }
 
@@ -223,11 +240,11 @@ class MetricCollector
         // One branch's share. Naming the branch is narrower than naming the
         // client, so nothing else needs adding: a row belonging to this branch
         // belongs to this client by construction.
-        if ($branch !== null && $branchKey !== null) {
-            return $query->where($branchKey, $branch->key);
-        }
-
         $via = $mapping['via'] ?? null;
+
+        if ($branch !== null && $branchKey !== null) {
+            return $this->throughHops($query->where($branchKey, $branch->key), $via, null);
+        }
 
         // A table that only records which BRANCH a row belongs to, which is the
         // ordinary case where a product is branch-first: 103 of School
@@ -250,15 +267,62 @@ class MetricCollector
             return $query->where($via, $client->key);
         }
 
-        // ['sale_id' => ['sales', 'id', 'business_id']]
-        foreach ($via as $localKey => [$table, $foreignKey, $tenantColumn]) {
-            $query->whereIn($localKey, fn (Builder $sub) => $sub
-                ->select($foreignKey)
-                ->from($table)
-                ->where($tenantColumn, $client->key));
+        return $this->throughHops($query, $via, $client);
+    }
+
+    /**
+     * Follows each hop to the table that knows the client.
+     *
+     * `['sale_id' => ['sales', 'id', 'business_id']]` — a sale item reaches its
+     * business through the sale. An optional fourth element narrows the rows
+     * of that middle table, which is where a product keeps the facts about who
+     * did something: `['user_id' => ['users', 'id', 'facility_id',
+     * ['is_support' => false]]]` counts a facility's own staff and not the
+     * support desk signing in to help them.
+     *
+     * Without a client — reading one branch, which is already narrower — only
+     * the filtered hops are followed, since an unfiltered one would add
+     * nothing but a subquery.
+     *
+     * @param  mixed  $via
+     */
+    private function throughHops(Builder $query, $via, ?ClientRecord $client): Builder
+    {
+        if (! is_array($via)) {
+            return $query;
+        }
+
+        foreach ($via as $localKey => $hop) {
+            [$table, $foreignKey, $tenantColumn] = $hop;
+            $filters = (array) ($hop[3] ?? []);
+
+            if ($client === null && $filters === []) {
+                continue;
+            }
+
+            $query->whereIn($localKey, function (Builder $sub) use ($table, $foreignKey, $tenantColumn, $filters, $client): void {
+                $sub->select($foreignKey)->from($table);
+
+                if ($client !== null) {
+                    $sub->where($tenantColumn, $client->key);
+                }
+
+                $this->applyFilters($sub, ['where' => $filters]);
+            });
         }
 
         return $query;
+    }
+
+    private function recordsBranch(string $table): bool
+    {
+        $branchKey = $this->branchKey();
+
+        if ($branchKey === null || $table === '') {
+            return true;
+        }
+
+        return $this->recordsBranch[$table] ??= Schema::hasColumn($table, $branchKey);
     }
 
     /**

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Extraction\ClientResolver;
 use Nugsoft\RetentionExtractor\Extraction\SnapshotBuilder;
@@ -160,6 +161,34 @@ describe('a table that knows only the branch', function (): void {
 
         expect(fn () => app(SnapshotBuilder::class)->activityPayload(clientRecord()))
             ->toThrow(ConfigurationException::class, 'metrics.visits_7d.via');
+    });
+});
+
+/**
+ * Not every table a client's figure comes from records a branch. Clinic Plus
+ * logs a sign-in against the user, and the user's facility — asking that table
+ * for its branch is a query MySQL refuses, and the whole snapshot with it.
+ */
+describe('a table that records no branch at all', function (): void {
+    beforeEach(function (): void {
+        withBranches();
+
+        $this->kyanja = makeBranch($this->business->id, 'Kyanja');
+    });
+
+    it('leaves the metric out of each branch rather than guessing a share', function (): void {
+        DB::table('sessions_log')->insert([
+            'business_id' => $this->business->id,
+            'created_at' => now()->subDay(),
+            'updated_at' => now()->subDay(),
+        ]);
+        makeBranchSale($this->business->id, $this->kyanja, 100_000, daysAgo: 1);
+
+        $payload = app(SnapshotBuilder::class)->activityPayload(clientRecord());
+
+        expect($payload['login_count_7d'])->toBe(1)
+            ->and($payload['branches'][0])->not->toHaveKey('login_count_7d')
+            ->and($payload['branches'][0]['transactions_7d'])->toBe(1);
     });
 });
 
