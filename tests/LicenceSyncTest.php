@@ -93,6 +93,19 @@ describe('writing a word, the way Clinic Plus does', function (): void {
 
         expect($changed)->toBe(0);
     });
+
+    /*
+     * The ordinary case for the hourly pull: nearly every client is already
+     * where NugsoftOS says. MySQL reports an UPDATE that rewrites a value
+     * already there as zero rows affected, so a count taken from the update
+     * read every one of them as "not found here". SQLite counts matched rows
+     * and never showed it — this pins the answer on any driver.
+     */
+    it('counts a client already in that state as found', function (): void {
+        $written = applier()->apply(LicenceState::fromPayload(licencePayload(['grants_access' => true])));
+
+        expect($written)->toBe(1);
+    });
 });
 
 describe('a client known by a word rather than a number', function (): void {
@@ -274,8 +287,17 @@ describe('the webhook', function (): void {
 
         postLicence($body, hash_hmac('sha256', $body, 'a-signing-key'))
             ->assertSuccessful()
-            ->assertJsonPath('rows_changed', 0)
+            ->assertJsonPath('rows_written', 0)
             ->assertJsonPath('grants_access', null);
+    });
+
+    it('says it applied a licence the client already had', function (): void {
+        $body = (string) json_encode(licencePayload(['grants_access' => true]));
+
+        postLicence($body, hash_hmac('sha256', $body, 'a-signing-key'))
+            ->assertSuccessful()
+            ->assertJsonPath('message', 'Licence applied.')
+            ->assertJsonPath('rows_written', 1);
     });
 
     it('acknowledges a stale delivery rather than asking to be retried', function (): void {
@@ -299,6 +321,16 @@ describe('asking for the current state', function (): void {
     beforeEach(function (): void {
         withStatusLicence();
         DB::table('facilities')->insert(['id' => 1, 'name' => 'Kampala Clinic', 'status' => 'Active']);
+    });
+
+    it('counts a client already in that state as applied, not missing', function (): void {
+        Http::fake(['*/api/v1/licence*' => Http::response([
+            'licences' => [licencePayload(['grants_access' => true])],
+        ])]);
+
+        test()->artisan('retention:sync-licence')
+            ->expectsOutputToContain('Licences applied: 1. Not found here: 0.')
+            ->assertSuccessful();
     });
 
     it('applies what NugsoftOS says, healing a webhook nobody received', function (): void {

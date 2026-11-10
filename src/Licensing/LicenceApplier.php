@@ -36,7 +36,13 @@ class LicenceApplier
     public function __construct(private readonly array $config) {}
 
     /**
-     * @return int the number of rows changed
+     * Counted from the rows found for the client, never from what the update
+     * reports. MySQL counts an UPDATE that rewrites a value already there as
+     * zero rows affected, so a client already where NugsoftOS says — the
+     * ordinary case for the hourly pull — read as "not found here". SQLite
+     * counts matched rows, which is why the tests never showed it.
+     *
+     * @return int the number of the client's rows written; 0 when this product does not have them
      *
      * @throws ConfigurationException
      */
@@ -51,13 +57,13 @@ class LicenceApplier
             return 0;
         }
 
-        $changed = DB::table($table)
+        DB::table($table)
             ->whereIn($this->primaryKey(), $ids)
             ->update($this->valuesFor($licence));
 
         $this->rememberApplied($licence);
 
-        return $changed;
+        return count($ids);
     }
 
     /**
