@@ -87,8 +87,8 @@ class SyncLicenceCommand extends Command
             // One client failing must not cost the rest their sync — the same
             // rule the daily push has followed since the day it was written.
             try {
-                $changed = $applier->apply($licence);
-                $changed > 0 ? $applied++ : $missing++;
+                $written = $applier->apply($licence);
+                $written > 0 ? $applied++ : $missing++;
             } catch (Throwable $exception) {
                 $this->components->warn("{$licence->externalId}: {$exception->getMessage()}");
             }

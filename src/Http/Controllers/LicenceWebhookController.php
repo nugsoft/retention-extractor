@@ -57,7 +57,7 @@ class LicenceWebhookController extends Controller
         }
 
         try {
-            $changed = $applier->apply($licence);
+            $written = $applier->apply($licence);
         } catch (Throwable $exception) {
             Log::error('Failed to apply a licence change from NugsoftOS.', [
                 'external_id' => $licence->externalId,
@@ -68,9 +68,9 @@ class LicenceWebhookController extends Controller
         }
 
         return new JsonResponse([
-            'message' => $changed > 0 ? 'Licence applied.' : 'No matching client here.',
+            'message' => $written > 0 ? 'Licence applied.' : 'No matching client here.',
             'applied' => true,
-            'rows_changed' => $changed,
+            'rows_written' => $written,
             'licence_version' => $licence->licenceVersion,
             // Read back out of this product's own tables, after the write.
             // Not an echo of what we were sent: it is what the next scheduled
