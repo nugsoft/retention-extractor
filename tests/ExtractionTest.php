@@ -305,6 +305,35 @@ describe('the subscription payload', function (): void {
             ->toBe(now()->addMonths(6)->toDateString());
     });
 
+    it('does not report a term held by a branch the product has deleted', function (): void {
+        // The fourth element narrows the branch table itself. School Monitor
+        // soft-deletes branches, and a closed campus's longer term would
+        // otherwise become the school's.
+        config()->set('retention-extractor.subscription', [
+            'table' => 'branch_licences',
+            'via' => ['business_branch_id' => ['business_branches', 'id', 'business_id', ['deleted_at' => null]]],
+            'start' => 'start_date', 'end' => 'end_date',
+            'where' => ['deleted_at' => null],
+        ]);
+
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => makeBranch($this->business->id, 'Open'),
+            'start_date' => now()->subMonths(6)->toDateString(),
+            'end_date' => now()->addMonths(6)->toDateString(),
+        ]);
+
+        DB::table('branch_licences')->insert([
+            'business_branch_id' => makeBranch($this->business->id, 'Closed', ['deleted_at' => now()]),
+            'start_date' => now()->subMonths(6)->toDateString(),
+            'end_date' => now()->addYears(2)->toDateString(),
+        ]);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayload($client)['end_date'])
+            ->toBe(now()->addMonths(6)->toDateString());
+    });
+
     it('does not report another school\'s term as this one\'s', function (): void {
         config()->set('retention-extractor.subscription', [
             'table' => 'branch_licences',

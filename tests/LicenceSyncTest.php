@@ -191,6 +191,30 @@ describe('capping a date, the way School Monitor does', function (): void {
             ->and(DB::table('branch_licences')->value('end_date'))
             ->toStartWith(now()->addYear()->toDateString());
     });
+
+    it('leaves alone a branch the product has deleted, when the path says to', function (): void {
+        // The fourth element narrows the branch table. Without it honoured,
+        // a closed campus is capped and read back with the open ones.
+        config()->set(
+            'retention-extractor.licence.via',
+            ['business_branch_id' => ['business_branches', 'id', 'business_id', ['deleted_at' => null]]],
+        );
+
+        DB::table('business_branches')->where('name', 'Annexe')->update(['deleted_at' => now()]);
+
+        applier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => (string) $this->businessId,
+            'grants_access' => false,
+        ])));
+
+        $ceilingOf = fn (string $branch): ?string => DB::table('branch_licences')
+            ->join('business_branches', 'business_branches.id', '=', 'branch_licences.business_branch_id')
+            ->where('business_branches.name', $branch)
+            ->value('license_expires_at');
+
+        expect($ceilingOf('Main'))->not->toBeNull()
+            ->and($ceilingOf('Annexe'))->toBeNull();
+    });
 });
 
 describe('a delivery that arrives out of order', function (): void {
