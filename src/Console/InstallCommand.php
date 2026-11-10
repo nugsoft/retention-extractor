@@ -79,7 +79,7 @@ class InstallCommand extends Command
      * Where NugsoftOS says this product keeps each metric, and which of
      * that table's rows count.
      *
-     * @var array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string}>
+     * @var array<string, array{tables: array<int, string>, where?: array<string, mixed>, distinct?: string, sum?: string, via?: string|array<string, array<int, mixed>>}>
      */
     private array $hints = [];
 
@@ -402,7 +402,11 @@ class InstallCommand extends Command
                 continue;
             }
 
-            $via = $this->resolveVia($schema, $table, $tenant, $metric);
+            $narrowing = $this->narrowingFor($metric, $table);
+
+            $via = $tenant !== null && $this->reaches($schema, $table, $narrowing['via'] ?? null)
+                ? $narrowing['via']
+                : $this->resolveVia($schema, $table, $tenant, $metric);
 
             // 'skip' comes back when there is no way from this table to the
             // client and the answer is to leave the metric out.
@@ -410,10 +414,7 @@ class InstallCommand extends Command
                 continue;
             }
 
-            $isValue = str_contains($metric, '_value_');
-            $amountColumn = $isValue ? $schema->guessAmountColumn($table) : null;
-
-            $narrowing = $this->narrowingFor($metric, $table);
+            $amountColumn = $this->amountColumnFor($schema, $metric, $table, $narrowing['sum'] ?? null);
 
             $metrics[$metric] = array_filter([
                 'table' => $table,
@@ -430,6 +431,59 @@ class InstallCommand extends Command
     }
 
     /**
+     * The column summed for this metric, or null to count rows.
+     *
+     * NugsoftOS's word first. Then a value metric sums its amount, and an
+     * `items_` metric sums its quantity: counting `sale_details` reports how
+     * many lines were rung up, and a line can be forty loaves.
+     */
+    private function amountColumnFor(SchemaInspector $schema, string $metric, string $table, mixed $hinted): ?string
+    {
+        if (is_string($hinted) && in_array($hinted, $schema->columns($table), true)) {
+            return $hinted;
+        }
+
+        if (str_contains($metric, '_value_')) {
+            return $schema->guessAmountColumn($table);
+        }
+
+        return str_starts_with($metric, 'items_') ? $schema->guessQuantityColumn($table) : null;
+    }
+
+    /**
+     * Whether a path NugsoftOS proposed exists in this database.
+     *
+     * Checked rather than trusted: a hint describes how the product is usually
+     * built, and an install that differs gets asked instead of handed a path
+     * that fails on the first push.
+     */
+    private function reaches(SchemaInspector $schema, string $table, mixed $via): bool
+    {
+        if (is_string($via)) {
+            return in_array($via, $schema->columns($table), true);
+        }
+
+        if (! is_array($via) || count($via) !== 1) {
+            return false;
+        }
+
+        $localKey = array_key_first($via);
+        $hop = $via[$localKey];
+
+        if (! is_string($localKey) || ! is_array($hop) || ! isset($hop[0], $hop[1], $hop[2])
+            || ! in_array($localKey, $schema->columns($table), true)
+            || ! $schema->hasTable((string) $hop[0])) {
+            return false;
+        }
+
+        $through = $schema->columns((string) $hop[0]);
+
+        return in_array($hop[1], $through, true)
+            && in_array($hop[2], $through, true)
+            && array_diff(array_keys((array) ($hop[3] ?? [])), $through) === [];
+    }
+
+    /**
      * Which rows of this table count, where NugsoftOS has said.
      *
      * Naming a table is not always enough. School Monitor writes the same
@@ -442,7 +496,11 @@ class InstallCommand extends Command
      * written for `system_audit_trails` means nothing against whatever else
      * somebody chose instead, and applied blindly would quietly match no rows.
      *
-     * @return array{where?: array<string, mixed>, distinct?: string}
+     * A hint may also say what to sum and how its table reaches the client —
+     * PosCream's audit trail is reached through `users` so that support staff
+     * working inside a business are not counted as that business.
+     *
+     * @return array{where?: array<string, mixed>, distinct?: string, sum?: string, via?: string|array<string, array<int, mixed>>}
      */
     private function narrowingFor(string $metric, string $table): array
     {
@@ -455,6 +513,8 @@ class InstallCommand extends Command
         return array_filter([
             'where' => $hint['where'] ?? null,
             'distinct' => $hint['distinct'] ?? null,
+            'sum' => $hint['sum'] ?? null,
+            'via' => $hint['via'] ?? null,
         ], fn (mixed $value): bool => $value !== null);
     }
 
@@ -561,7 +621,7 @@ class InstallCommand extends Command
     {
         $guesses = [
             'address' => $schema->firstPresent($columns, ['address', 'location', 'physical_address', 'street']),
-            'contact_phone' => $schema->firstPresent($columns, ['main_contact', 'phone', 'telephone', 'contact_phone', 'mobile']),
+            'contact_phone' => $schema->firstPresent($columns, ['main_contact', 'phone', 'phone1', 'telephone', 'contact_phone', 'mobile']),
             'contact_email' => $schema->firstPresent($columns, ['email', 'contact_email']),
         ];
 

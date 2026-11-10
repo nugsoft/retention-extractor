@@ -81,6 +81,29 @@ describe('a multi-tenant product', function (): void {
             ->toBe(['sale_id' => ['sales', 'id', 'business_id']]);
     });
 
+    /**
+     * Counting the rows of a line-items table reports how many lines were rung
+     * up, and a line can be forty loaves.
+     */
+    it('sums the quantity of items sold rather than counting lines', function (): void {
+        $this->fakeContract(required: ['items_sold_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['items_sold_7d', 'sale_items'],
+            ["How does a row in 'sale_items' reach the businesses it belongs to?", 'hop'],
+            ["Which column on 'sale_items' points at that other table?", 'sale_id'],
+            ['And which table is that?', 'sales'],
+            ["Which column on 'sales' does sale_items.sale_id match?", 'id'],
+            ["And which column on 'sales' holds the businesses it belongs to?", 'business_id'],
+            ...$this->declineTwoWayMappings(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['items_sold_7d'])
+            ->toMatchArray(['sum' => 'quantity'])
+            ->not->toHaveKey('count');
+    });
+
     it('leaves out a metric the product cannot measure, rather than writing a broken one', function (): void {
         $this->fakeContract(required: ['items_sold_7d', 'transactions_7d']);
 
@@ -317,6 +340,61 @@ describe('a hint that says which rows count', function (): void {
         expect($this->writtenConfig()['metrics']['login_count_7d'])
             ->toMatchArray(['table' => 'sessions_log'])
             ->not->toHaveKey('where');
+    });
+
+    /**
+     * PosCream's audit trail carries the business, but so do the actions of
+     * support staff working inside one. Reaching it through `users` is what
+     * leaves them out, and nothing in the schema says so.
+     */
+    it('takes the path to the client from the hint, without asking', function (): void {
+        $path = ['user_id' => ['users', 'id', 'business_id', ['is_support' => false]]];
+
+        $this->fakeContract(required: ['login_count_7d'], hints: [
+            'login_count_7d' => ['tables' => ['audit_trail'], 'distinct' => 'user_id', 'via' => $path],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['login_count_7d', 'audit_trail'],
+            ...$this->declineTwoWayMappings(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['login_count_7d']['via'])->toBe($path);
+    });
+
+    it('asks after all when the hinted path is not in this database', function (): void {
+        $this->fakeContract(required: ['login_count_7d'], hints: [
+            'login_count_7d' => [
+                'tables' => ['audit_trail'],
+                'via' => ['user_id' => ['staff', 'id', 'business_id']],
+            ],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['login_count_7d', 'audit_trail'],
+            ...$this->declineTwoWayMappings(),
+        ])->assertSuccessful()->run();
+
+        // No `staff` table here, so the ordinary guess stands.
+        expect($this->writtenConfig()['metrics']['login_count_7d']['via'])->toBe('business_id');
+    });
+
+    it('sums the column the hint names', function (): void {
+        $this->fakeContract(required: ['transactions_7d'], hints: [
+            'transactions_7d' => ['tables' => ['sales'], 'sum' => 'total'],
+        ]);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineTwoWayMappings(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics']['transactions_7d'])
+            ->toMatchArray(['sum' => 'total'])
+            ->not->toHaveKey('count');
     });
 
     it('proposes the hinted table without being told twice', function (): void {
