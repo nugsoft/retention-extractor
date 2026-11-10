@@ -354,6 +354,18 @@ return [
         'where' => null,
 
         /*
+        | Or none of the above: a class of this product's own, implementing
+        | Nugsoft\RetentionExtractor\Licensing\LicenceDriver, for licence state
+        | no single column can express. PosCream keeps it on every branch and
+        | on the business, and an expired branch must stay off whatever it is
+        | told. Set this and the table, via, status and ceiling above are not
+        | read. It stays this product's even under a remote mapping.
+        |
+        |     'driver' => \App\Retention\PosCreamLicence::class,
+        */
+        'driver' => null,
+
+        /*
         | Signs every licence message. Issued with the product's API key and
         | set on both sides; without it nothing is received, because an
         | endpoint that switches clients off must not take anybody's word for

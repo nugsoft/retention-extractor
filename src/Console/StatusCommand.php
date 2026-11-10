@@ -151,14 +151,16 @@ class StatusCommand extends Command
             return;
         }
 
-        $strategy = filled($licence['status'] ?? null)
-            ? "a word in {$licence['table']}.{$licence['status']['column']}"
-            : "a date in {$licence['table']}.{$licence['ceiling']['column']}";
+        $strategy = match (true) {
+            filled($licence['driver'] ?? null) => 'by this product\'s own '.$licence['driver'],
+            filled($licence['status'] ?? null) => "a word in {$licence['table']}.{$licence['status']['column']}",
+            default => "a date in {$licence['table']}.{$licence['ceiling']['column']}",
+        };
 
         $this->table(['', ''], [
             ['Licence sync', 'on'],
             ['Access written as', $strategy],
-            ['Ignoring rows where', $this->describeWhere($licence)],
+            ['Ignoring rows where', filled($licence['driver'] ?? null) ? 'up to that class' : $this->describeWhere($licence)],
             ['Listening on', (string) (config('retention-extractor.licence.route') ?: 'not set')],
             ['Signing secret', $this->yesNo(filled(config('retention-extractor.licence.secret')))],
             ['Pull runs', (string) (config('retention-extractor.licence.pull_at') ?: 'never — scheduled by hand')],

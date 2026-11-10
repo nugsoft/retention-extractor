@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Http\RetentionClient;
+use Nugsoft\RetentionExtractor\Licensing\LicenceDriver;
 use Nugsoft\RetentionExtractor\Support\SchemaInspector;
 use Throwable;
 
@@ -29,6 +30,9 @@ class InstallCommand extends Command
     protected $signature = 'retention:install {--force : Overwrite an existing config file without asking (the changes are still listed)}';
 
     protected $description = 'Set up the NugsoftOS extractor for this product';
+
+    /** The licence-table answer meaning "a class of this product's own". */
+    private const OwnDriver = 'none of these — a class of this product\'s own';
 
     /**
      * Metrics NugsoftOS scores, by product code — a copy of the `targets` in
@@ -866,9 +870,21 @@ class InstallCommand extends Command
 
         $table = select(
             label: 'Which table holds that?',
-            options: $schema->orderByPlausibility($schema->tables(), $tenant['table'] ?? null, $this->branchKey),
+            options: [
+                ...$schema->orderByPlausibility($schema->tables(), $tenant['table'] ?? null, $this->branchKey),
+                self::OwnDriver,
+            ],
+            hint: 'Pick the last option where no one table can say it — a class of this product\'s own then does.',
             scroll: 15,
         );
+
+        if ($table === self::OwnDriver) {
+            return ['driver' => text(
+                label: 'Which class decides? It must implement '.LicenceDriver::class,
+                default: 'App\\Retention\\Licence',
+                required: true,
+            )];
+        }
 
         // Where the licence lives on the client's own row — Clinic Plus keeps a
         // word on the facility — the way to the client is that row's own key,
@@ -1214,6 +1230,10 @@ class InstallCommand extends Command
         // off a route that was never mounted.
         match (true) {
             $remote => $this->components->info('Licence sync: on, mapped from NugsoftOS.'),
+            isset($licence['driver']) => $this->components->info(
+                "Licence sync: on, through {$licence['driver']}. Write that class before the first delivery — "
+                .'until it exists every one is refused.'
+            ),
             $licence !== null => $this->components->info("Licence sync: on, writing to '{$licence['table']}'."),
             default => $this->components->warn(
                 'Licence sync: OFF. Nothing can switch a client off here until the '
