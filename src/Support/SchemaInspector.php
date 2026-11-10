@@ -233,6 +233,14 @@ class SchemaInspector
     }
 
     /**
+     * A column counting units, for metrics that sum how many things moved.
+     */
+    public function guessQuantityColumn(string $table): ?string
+    {
+        return $this->firstPresent($this->columns($table), ['quantity', 'qty', 'quantity_sold', 'units']);
+    }
+
+    /**
      * Where a client's branches live, if the product records them.
      *
      * Derived from the tenant table before anything else — a product with
