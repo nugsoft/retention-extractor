@@ -368,14 +368,14 @@ product to the system is adding that one block.
 | Product | Metrics |
 | --- | --- |
 | POScream, POSCafe | `login_count_7d`, `items_sold_7d`, `transactions_7d`, `transaction_value_7d` |
-| Clinic Plus | `visits_7d`, `lab_requests_7d`, `prescriptions_7d`, `new_patients_7d` |
+| Clinic Plus | `login_count_7d`, `visits_7d`, `lab_requests_7d`, `prescriptions_7d`, `new_patients_7d` |
 | Mfuko | `login_count_7d`, `member_registrations_7d`, `loan_disbursements_7d`, `transactions_7d`, `transaction_value_7d` |
 | School Monitor | `login_count_7d`, `academic_entries_7d`, `attendance_records_7d`, `fee_payments_7d` |
 
-Clinic Plus is the worked example of a product that cannot report a component:
-it records logins nowhere, so it declares no login target, is never asked for
-one, and is scored across what a clinic can actually be asked about instead of
-being capped at four fifths of the score for ever.
+A product that cannot report a component declares no target for it, is never
+asked for it, and is scored across the components it can report rather than
+marked down for the gap. Clinic Plus worked that way until it started counting
+`user_auth_logs`.
 
 Anything else you send is kept in `raw_payload` but not scored.
 
