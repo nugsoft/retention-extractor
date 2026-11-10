@@ -60,21 +60,27 @@ class ProductMapping
             return $local;
         }
 
-        $remote = $this->fetched()['licence'] ?? null;
-
-        if (! is_array($remote)) {
-            return $local;
-        }
-
-        // The secret and the route are this product's own, never Retention
-        // Intel's to send. Everything describing where things live is taken
-        // from the answer; everything describing who may change them is not.
-        return [
-            ...$remote,
+        // The secret and the route are this product's own, never NugsoftOS's
+        // to send. Everything describing where things live is taken from the
+        // answer; everything describing who may change them is not.
+        $own = [
             'secret' => $local['secret'] ?? null,
             'route' => $local['route'] ?? null,
             'pull_at' => $local['pull_at'] ?? null,
         ];
+
+        $remote = $this->fetched()['licence'] ?? null;
+
+        // No answer, or an answer saying nothing is mapped: nothing is mapped.
+        // Never the local block — under a remote source it is whatever was
+        // left in the file before the switch, and nobody is keeping it right.
+        // Clinic Plus's repository carries one naming a table its product
+        // never reads. Unconfigured, the webhook answers 503 and is retried.
+        if (! is_array($remote)) {
+            return $own;
+        }
+
+        return [...$remote, ...$own];
     }
 
     /**
