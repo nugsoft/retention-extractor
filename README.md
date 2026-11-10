@@ -68,6 +68,11 @@ best reading of your schema to save you typing, and then it is on you to check
 what it wrote. Anything it cannot find, it leaves blank and the push refuses to
 run until you fill it in.
 
+Once you have corrected that file, running the installer again will not quietly
+undo it. It lists every setting it would change, as `old → new`, and asks before
+replacing anything. `--force` skips the question but still prints the list. If
+nothing would change, it writes nothing.
+
 ## Where the mapping lives
 
 Two answers, and it is a decision rather than a fallback.

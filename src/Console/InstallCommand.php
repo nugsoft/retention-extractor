@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Nugsoft\RetentionExtractor\Console;
 
+use Closure;
 use Illuminate\Console\Command;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
@@ -24,7 +26,7 @@ use function Laravel\Prompts\text;
  */
 class InstallCommand extends Command
 {
-    protected $signature = 'retention:install {--force : Overwrite an existing config file}';
+    protected $signature = 'retention:install {--force : Overwrite an existing config file without asking (the changes are still listed)}';
 
     protected $description = 'Set up the NugsoftOS extractor for this product';
 
@@ -924,14 +926,6 @@ class InstallCommand extends Command
     ): void {
         $path = config_path('retention-extractor.php');
 
-        if (file_exists($path) && ! $this->option('force')) {
-            if (! confirm(label: 'config/retention-extractor.php already exists. Overwrite it?', default: false)) {
-                $this->components->warn('Left the existing config alone.');
-
-                return;
-            }
-        }
-
         $stub = file_get_contents(__DIR__.'/../../config/retention-extractor.php');
 
         $stub = $this->replaceLine($stub, "    'metrics' => [],", "    'metrics' => ".$this->export($metrics, 1).',');
@@ -975,10 +969,110 @@ class InstallCommand extends Command
             $stub = $this->replaceLine($stub, "        'name' => 'name',", "        'name' => '{$tenant['name']}',");
         }
 
+        if (file_exists($path) && ! $this->mayReplace($path, $stub)) {
+            return;
+        }
+
         file_put_contents($path, $stub);
 
         $this->newLine();
         $this->components->info('Wrote config/retention-extractor.php');
+    }
+
+    /**
+     * Whether an existing config may be replaced, having said what that changes.
+     *
+     * A yes/no about a whole file says nothing about what is in it. Clinic Plus
+     * lost a hand-tuned config to exactly that question: fresh guesses replaced
+     * corrections nobody could see in them, and the diff was committed under an
+     * unrelated message. Each setting that would change is listed first, by its
+     * dotted key, so a correction about to be lost is named.
+     *
+     * `--force` skips the question, never the list.
+     */
+    private function mayReplace(string $path, string $proposed): bool
+    {
+        $changes = $this->changesBetween($path, $proposed);
+
+        if ($changes === []) {
+            $this->newLine();
+            $this->components->info('config/retention-extractor.php already says this. Left it as it is.');
+
+            return false;
+        }
+
+        $this->newLine();
+
+        if ($changes === null) {
+            $this->components->warn('config/retention-extractor.php exists and could not be read, so what it holds cannot be compared.');
+        } else {
+            $this->components->warn('config/retention-extractor.php exists. Replacing it changes these settings:');
+
+            foreach ($changes as $key => [$current, $next]) {
+                $this->components->twoColumnDetail($key, "{$current} → {$next}");
+            }
+        }
+
+        if ($this->option('force')) {
+            return true;
+        }
+
+        if (confirm(label: 'Replace config/retention-extractor.php with these changes?', default: false)) {
+            return true;
+        }
+
+        $this->components->warn('Left the existing config alone.');
+
+        return false;
+    }
+
+    /**
+     * Every setting that differs between the file there and the one proposed,
+     * compared as the config each evaluates to rather than as text — the
+     * comments and layout are not what a push runs on.
+     *
+     * Null when the existing file cannot be evaluated.
+     *
+     * @return array<string, array{0: string, 1: string}>|null
+     */
+    private function changesBetween(string $path, string $proposed): ?array
+    {
+        $scratch = tempnam(sys_get_temp_dir(), 'retention-extractor-');
+
+        try {
+            $current = Arr::dot((array) require $path);
+
+            file_put_contents($scratch, $proposed);
+            $next = Arr::dot((array) require $scratch);
+        } catch (Throwable) {
+            return null;
+        } finally {
+            @unlink($scratch);
+        }
+
+        $changes = [];
+
+        foreach (array_unique([...array_keys($next), ...array_keys($current)]) as $key) {
+            $was = array_key_exists($key, $current) ? $this->describeSetting($current[$key]) : '(not set)';
+            $now = array_key_exists($key, $next) ? $this->describeSetting($next[$key]) : '(removed)';
+
+            if ($was !== $now) {
+                $changes[(string) $key] = [$was, $now];
+            }
+        }
+
+        return $changes;
+    }
+
+    private function describeSetting(mixed $value): string
+    {
+        return match (true) {
+            // The installer never writes one, so a closure here was put there
+            // by hand — `clients.scope`, usually — and is worth naming.
+            $value instanceof Closure => 'a closure',
+            is_array($value) => '[]',
+            default => var_export($value, true),
+        };
     }
 
     /**

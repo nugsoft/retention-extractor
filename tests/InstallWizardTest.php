@@ -516,3 +516,78 @@ describe('the half that receives', function (): void {
         expect($this->writtenConfig()['mapping_source'])->toBe('local');
     });
 });
+
+/*
+ * Clinic Plus lost a hand-tuned config this way: the installer was run again,
+ * its fresh guesses replaced corrections nobody could see in them, and the
+ * change was committed under an unrelated message. A yes/no about a whole file
+ * says nothing about what is in it, so the installer now says what it would
+ * change before it changes it.
+ */
+describe('a config that is already there', function (): void {
+    beforeEach(function (): void {
+        // Tuned by hand: a filter no guess would produce, and a licence the
+        // product actually reads.
+        file_put_contents(config_path('retention-extractor.php'), <<<'PHP'
+            <?php
+
+            return [
+                'metrics' => [
+                    'transactions_7d' => ['table' => 'sales', 'count' => '*', 'via' => 'business_id', 'date' => 'created_at', 'where' => ['deleted_at' => null]],
+                ],
+                'licence' => ['table' => 'facilities'],
+            ];
+            PHP);
+
+        $this->tuned = file_get_contents(config_path('retention-extractor.php'));
+
+        $this->fakeContract(required: ['transactions_7d']);
+    });
+
+    it('says what it would change and leaves the file alone when told no', function (): void {
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineTwoWayMappings(),
+            ['Replace config/retention-extractor.php with these changes?', false],
+        ], force: false)
+            ->expectsOutputToContain('metrics.transactions_7d.where.deleted_at')
+            ->expectsOutputToContain('licence.table')
+            ->assertSuccessful()
+            ->run();
+
+        expect(file_get_contents(config_path('retention-extractor.php')))->toBe($this->tuned);
+    });
+
+    it('still says what it changed when forced', function (): void {
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineTwoWayMappings(),
+        ])
+            ->expectsOutputToContain('licence.table')
+            ->assertSuccessful()
+            ->run();
+
+        expect($this->writtenConfig()['licence']['table'])->toBeNull();
+    });
+
+    it('asks nothing when the answers come to what is already there', function (): void {
+        $answers = [
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ...$this->declineTwoWayMappings(),
+        ];
+
+        $this->install($answers)->assertSuccessful()->run();
+
+        $written = file_get_contents(config_path('retention-extractor.php'));
+
+        $this->install($answers, force: false)
+            ->expectsOutputToContain('already says this')
+            ->assertSuccessful()
+            ->run();
+
+        expect(file_get_contents(config_path('retention-extractor.php')))->toBe($written);
+    });
+});
