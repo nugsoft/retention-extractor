@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
+use Nugsoft\RetentionExtractor\Licensing\LicenceDriver;
 
 /**
  * The wizard, walked end to end.
@@ -489,6 +490,33 @@ describe('the half that receives', function (): void {
                 'granted' => 'Active',
                 'revoked' => 'Suspend',
             ]);
+    });
+
+    /**
+     * PosCream keeps access on every branch and on the business, and an
+     * expired branch must stay off whatever it is told — no one table can say
+     * that. The answer is a class of the product's own, and nothing else.
+     */
+    it('names the product\'s own class where no one table can say it', function (): void {
+        $this->fakeContract(required: ['transactions_7d']);
+
+        $this->install([
+            ...$this->connectAndIdentifyTenant(),
+            ['transactions_7d', 'sales'],
+            ["Push subscription dates from 'subscriptions'?", false],
+            ['Should NugsoftOS be able to switch clients off here?', true],
+            ['Which table holds that?', 'none of these — a class of this product\'s own'],
+            ['Which class decides? It must implement '.LicenceDriver::class, 'App\\Retention\\PosCreamLicence'],
+        ])
+            ->expectsOutputToContain('through App\\Retention\\PosCreamLicence')
+            ->assertSuccessful()
+            ->run();
+
+        $licence = $this->writtenConfig()['licence'];
+
+        expect($licence['driver'])->toBe('App\\Retention\\PosCreamLicence')
+            ->and($licence['table'])->toBeNull()
+            ->and($licence['status'])->toBeNull();
     });
 
     it('says out loud when licence sync is left off', function (): void {

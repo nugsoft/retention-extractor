@@ -63,11 +63,18 @@ class ProductMapping
         // The secret and the route are this product's own, never NugsoftOS's
         // to send. Everything describing where things live is taken from the
         // answer; everything describing who may change them is not.
+        //
+        // A driver is this product's own code, so it is never NugsoftOS's to
+        // send either — and where there is one, it is the whole mapping.
         $own = [
             'secret' => $local['secret'] ?? null,
             'route' => $local['route'] ?? null,
             'pull_at' => $local['pull_at'] ?? null,
         ];
+
+        if (filled($local['driver'] ?? null)) {
+            return [...$own, 'driver' => $local['driver']];
+        }
 
         $remote = $this->fetched()['licence'] ?? null;
 

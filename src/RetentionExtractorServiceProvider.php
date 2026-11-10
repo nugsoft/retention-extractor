@@ -127,7 +127,10 @@ class RetentionExtractorServiceProvider extends ServiceProvider
             return true;
         }
 
-        return filled(config('retention-extractor.licence.table'));
+        // A driver is a mapping too — the product's own, in code. Without this
+        // a driver-only install mounted nothing and every delivery was a 404.
+        return filled(config('retention-extractor.licence.table'))
+            || filled(config('retention-extractor.licence.driver'));
     }
 
     /**

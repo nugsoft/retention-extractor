@@ -283,6 +283,27 @@ shorten access, never hand somebody time they have not paid for.
 A licence covers the whole client, so where the rows are per branch every
 branch of that client is written. A client is either on or off, never half.
 
+**A class of your own**: for licence state that no single column can express.
+PosCream keeps access on every branch *and* on the business, an expired branch
+has to stay off whatever it is told, and an open till stays signed in until its
+token is deleted. That knowledge belongs in PosCream, not in this package:
+
+```php
+'licence' => [
+    'driver' => \App\Retention\PosCreamLicence::class,
+],
+```
+
+The class implements `Nugsoft\RetentionExtractor\Licensing\LicenceDriver`:
+`apply(LicenceState $licence): int` returns how many rows hold that client's
+licence (0 means no such client here), and `grantsAccess(string $externalId): ?bool`
+reads the current state back. It is resolved from the container. The package
+still verifies signatures, drops stale deliveries, records what was applied and
+reports back. A driver stays yours under `RETENTION_MAPPING_SOURCE=remote`;
+NugsoftOS describes tables and can never name a class here. The installer
+offers it as the last answer to "Which table holds that?"; with a remote
+mapping it does not ask, so add the line by hand.
+
 Where that table soft-deletes, say so:
 
 ```php

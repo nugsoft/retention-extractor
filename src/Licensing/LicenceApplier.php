@@ -23,6 +23,9 @@ use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
  *   `status`  — write a word into a column. Clinic Plus.
  *   `ceiling` — write a date that caps access, or clear it. School Monitor.
  *
+ * Or, where no single column can say it, a `driver` — a class of the
+ * product's own implementing LicenceDriver. PosCream.
+ *
  * The ceiling strategy revokes by setting the date to yesterday rather than by
  * deleting a term, and grants by clearing it so the product's own paid term
  * governs again. That is deliberate: it means a mistake here can only ever
@@ -49,6 +52,18 @@ class LicenceApplier
     public function apply(LicenceState $licence): int
     {
         $this->assertConfigured();
+
+        $driver = $this->driver();
+
+        if ($driver !== null) {
+            $written = $driver->apply($licence);
+
+            if ($written > 0) {
+                $this->rememberApplied($licence);
+            }
+
+            return $written;
+        }
 
         $table = (string) $this->config['table'];
         $ids = $this->rowIdsFor($licence->externalId);
@@ -81,6 +96,12 @@ class LicenceApplier
      */
     public function grantsAccess(string $externalId): ?bool
     {
+        $driver = $this->driver();
+
+        if ($driver !== null) {
+            return $driver->grantsAccess($externalId);
+        }
+
         if (! $this->isConfigured() || blank($this->config['via'] ?? null)) {
             return null;
         }
@@ -135,6 +156,10 @@ class LicenceApplier
 
     public function isConfigured(): bool
     {
+        if (filled($this->config['driver'] ?? null)) {
+            return true;
+        }
+
         return filled($this->config['table'] ?? null)
             && (filled($this->config['status'] ?? null) || filled($this->config['ceiling'] ?? null));
     }
@@ -275,6 +300,30 @@ class LicenceApplier
         return $query;
     }
 
+    /**
+     * The product's own driver, where it names one.
+     *
+     * @throws ConfigurationException
+     */
+    private function driver(): ?LicenceDriver
+    {
+        $class = $this->config['driver'] ?? null;
+
+        if (blank($class)) {
+            return null;
+        }
+
+        if (! is_string($class) || ! class_exists($class) || ! is_subclass_of($class, LicenceDriver::class)) {
+            throw ConfigurationException::missing(
+                'licence.driver',
+                'Name a class that exists and implements '.LicenceDriver::class.'.',
+            );
+        }
+
+        /** @var LicenceDriver */
+        return app($class);
+    }
+
     private function primaryKey(): string
     {
         return (string) ($this->config['primary_key'] ?? 'id');
@@ -306,7 +355,7 @@ class LicenceApplier
             );
         }
 
-        if (blank($this->config['via'] ?? null)) {
+        if (blank($this->config['driver'] ?? null) && blank($this->config['via'] ?? null)) {
             throw ConfigurationException::missing(
                 'licence.via',
                 'Say how a licence row is linked to the client it belongs to.',

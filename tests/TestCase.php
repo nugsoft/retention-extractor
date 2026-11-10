@@ -35,6 +35,29 @@ abstract class TestCase extends Orchestra
     protected bool $remoteInstall = false;
 
     /**
+     * The licence driver this install names, decided at boot like the route.
+     *
+     * @var class-string|null
+     */
+    protected ?string $licenceDriver = null;
+
+    /**
+     * Rebuild as a product whose own class switches clients on and off.
+     *
+     * @param  class-string  $driver
+     */
+    protected function asDriverInstall(string $driver): void
+    {
+        $this->licenceDriver = $driver;
+
+        $this->refreshApplication();
+
+        // A rebuilt application has a fresh in-memory database, and applying a
+        // licence records it in the package's own table.
+        $this->artisan('migrate', ['--database' => 'testing'])->run();
+    }
+
+    /**
      * Rebuild as a product carrying no mapping of its own.
      */
     protected function asRemoteInstall(): void
@@ -57,6 +80,11 @@ abstract class TestCase extends Orchestra
         $app['config']->set('retention-extractor.licence.table', 'facilities');
         $app['config']->set('retention-extractor.licence.secret', 'a-signing-key');
         $app['config']->set('retention-extractor.licence.route', 'api/retention/licence');
+
+        if ($this->licenceDriver !== null) {
+            $app['config']->set('retention-extractor.licence.table', null);
+            $app['config']->set('retention-extractor.licence.driver', $this->licenceDriver);
+        }
 
         if ($this->remoteInstall) {
             $app['config']->set('retention-extractor.mapping_source', 'remote');
