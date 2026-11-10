@@ -92,6 +92,10 @@ abstract class TestCase extends Orchestra
             $table->string('address')->nullable();
             $table->string('main_contact', 30)->nullable();
             $table->string('email')->nullable();
+
+            // School Monitor's `school_branches` soft-deletes, and a path
+            // through it must be able to say so.
+            $table->softDeletes();
         });
 
         Schema::create('visits', function (Blueprint $table): void {

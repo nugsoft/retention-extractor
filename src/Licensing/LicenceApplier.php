@@ -177,6 +177,10 @@ class LicenceApplier
      * beneath the client — School Monitor's subscriptions know their branch,
      * and the branch knows the school.
      *
+     * An optional fourth element narrows that middle table, as it does for the
+     * metrics: `['deleted_at' => null]` leaves a closed branch's rows alone,
+     * rather than capping them and reading them back with the open ones.
+     *
      * @return array<int, mixed>
      */
     private function rowIdsFor(string $externalId): array
@@ -189,11 +193,13 @@ class LicenceApplier
             return $this->naming($this->only(DB::table($table)), $via, $externalId)->pluck($key)->all();
         }
 
-        /** @var array<string, array<int, string>> $via */
+        /** @var array<string, array<int, mixed>> $via */
         $localColumn = (string) array_key_first($via);
         [$parentTable, $parentKey, $parentVia] = $via[$localColumn];
 
-        $parentIds = $this->naming(DB::table($parentTable), $parentVia, $externalId)->pluck($parentKey);
+        $parents = $this->narrowedBy(DB::table($parentTable), $via[$localColumn][3] ?? null);
+
+        $parentIds = $this->naming($parents, $parentVia, $externalId)->pluck($parentKey);
 
         if ($parentIds->isEmpty()) {
             return [];
@@ -248,8 +254,14 @@ class LicenceApplier
      */
     private function only(Builder $query): Builder
     {
-        $where = $this->config['where'] ?? null;
+        return $this->narrowedBy($query, $this->config['where'] ?? null);
+    }
 
+    /**
+     * @param  mixed  $where  a column => value map; anything else narrows nothing
+     */
+    private function narrowedBy(Builder $query, mixed $where): Builder
+    {
         if (! is_array($where)) {
             return $query;
         }

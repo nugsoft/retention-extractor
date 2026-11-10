@@ -232,6 +232,14 @@ deleted future term is reported as the current one:
 Four Clinic Plus facilities were pushing a term from a deleted row before this
 was found. Nothing errored; the dates were simply two days wrong.
 
+`where` filters the subscription table only. Where the branch table also
+soft-deletes, give the path the same fourth element the metrics take, and a
+closed branch's term is left out too. The licence path accepts it as well:
+
+```php
+'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id', ['deleted_at' => null]]],
+```
+
 ### Licences (optional)
 
 Everything above pushes data *out*. This is the one thing that comes back:

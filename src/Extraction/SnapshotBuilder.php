@@ -138,7 +138,11 @@ class SnapshotBuilder
      * names its branch and the branch names the school, so there is no column
      * here that reaches a client directly.
      *
-     * @param  array<string, array<int, string>>|string  $via
+     * An optional fourth element narrows that middle table, as it does for the
+     * metrics: `['deleted_at' => null]` keeps a closed branch's term from being
+     * reported as the school's.
+     *
+     * @param  array<string, array<int, mixed>>|string  $via
      */
     private function scopeToClient(Builder $query, array|string $via, ClientRecord $client): void
     {
@@ -151,10 +155,11 @@ class SnapshotBuilder
         $localColumn = (string) array_key_first($via);
         [$parentTable, $parentKey, $parentVia] = $via[$localColumn];
 
-        $query->whereIn(
-            $localColumn,
-            DB::table($parentTable)->where($parentVia, $client->key)->select($parentKey),
-        );
+        $parents = DB::table($parentTable)->where($parentVia, $client->key)->select($parentKey);
+
+        $this->applyWhere($parents, $via[$localColumn][3] ?? null);
+
+        $query->whereIn($localColumn, $parents);
     }
 
     /**
