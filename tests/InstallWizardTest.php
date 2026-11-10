@@ -215,6 +215,32 @@ describe('when NugsoftOS cannot be reached', function (): void {
 
         Http::assertNothingSent();
     });
+
+    it('does not ask a product that is not scored on logins for one', function (): void {
+        // Clinic Plus records logins nowhere NugsoftOS can use, so it has no
+        // login target and is never asked for one online. Offline it was,
+        // because the built-in list added the login count to every product.
+        Http::fake();
+
+        $this->install([
+            ['Where is NugsoftOS?', 'https://retention.test'],
+            ['The API key issued for this product', ''],
+            ['Which product is this?', 'clinic_plus'],
+            ['Does this installation serve more than one business?', true],
+            ['Which table holds those businesses?', 'businesses'],
+            ['Which column identifies each business to NugsoftOS?', 'id'],
+            ['Which column holds the business name?', 'business_name'],
+            ['Does a business have branches, and is that where the work is recorded?', false],
+            ['Which table best represents real use of this product?', 'sales'],
+            ['visits_7d', 'sales'],
+            ['lab_requests_7d', 'skip'],
+            ['prescriptions_7d', 'skip'],
+            ['new_patients_7d', 'skip'],
+            ...$this->declineTwoWayMappings(),
+        ])->assertSuccessful()->run();
+
+        expect($this->writtenConfig()['metrics'])->not->toHaveKey('login_count_7d');
+    });
 });
 
 /**

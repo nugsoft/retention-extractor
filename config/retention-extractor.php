@@ -391,17 +391,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Metrics NugsoftOS accepts
+    | Metrics NugsoftOS scores
     |--------------------------------------------------------------------------
     |
-    | Every product sends:            login_count_7d
-    | POScream / POSCafe:             items_sold_7d, transactions_7d, transaction_value_7d
-    | Clinic Plus:                    visits_7d, lab_requests_7d, prescriptions_7d, new_patients_7d
-    | Mfuko:                          member_registrations_7d, loan_disbursements_7d,
-    |                                 transactions_7d, transaction_value_7d
-    | School Monitor:                 academic_entries_7d, attendance_records_7d, fee_payments_7d
+    | POScream / POSCafe:   login_count_7d, items_sold_7d, transactions_7d,
+    |                       transaction_value_7d
+    | Clinic Plus:          visits_7d, lab_requests_7d, prescriptions_7d,
+    |                       new_patients_7d — no login count: it is not scored
+    |                       on one until it records logins somewhere usable
+    | Mfuko:                login_count_7d, member_registrations_7d,
+    |                       loan_disbursements_7d, transactions_7d,
+    |                       transaction_value_7d
+    | School Monitor:       login_count_7d, academic_entries_7d,
+    |                       attendance_records_7d, fee_payments_7d
     |
-    | Anything else you send is preserved in raw_payload but not scored.
+    | The live list is whatever `retention:install` is told by NugsoftOS;
+    | this is a reminder, not the contract. Anything else you send is kept in
+    | raw_payload but not scored.
     |
     */
 
