@@ -34,16 +34,16 @@ class InstallCommand extends Command
      * Metrics NugsoftOS scores, by product code — a copy of the `targets` in
      * its config/health_score.php, used only when it cannot be asked.
      *
-     * The login count is listed per product rather than added to every one.
-     * Clinic Plus has no login target, so it is never asked for one online,
-     * and offline it should not be either.
+     * The login count is listed per product rather than added to every one: a
+     * product with no login target is never asked for one online, and offline
+     * it should not be either. Every product declares one today.
      *
      * @var array<string, array<int, string>>
      */
     private const ProductMetrics = [
         'poscream' => ['login_count_7d', 'items_sold_7d', 'transactions_7d', 'transaction_value_7d'],
         'poscafe' => ['login_count_7d', 'items_sold_7d', 'transactions_7d', 'transaction_value_7d'],
-        'clinic_plus' => ['visits_7d', 'lab_requests_7d', 'prescriptions_7d', 'new_patients_7d'],
+        'clinic_plus' => ['login_count_7d', 'visits_7d', 'lab_requests_7d', 'prescriptions_7d', 'new_patients_7d'],
         'mfuko' => ['login_count_7d', 'member_registrations_7d', 'loan_disbursements_7d', 'transactions_7d', 'transaction_value_7d'],
         'school_monitor' => ['login_count_7d', 'academic_entries_7d', 'attendance_records_7d', 'fee_payments_7d'],
     ];

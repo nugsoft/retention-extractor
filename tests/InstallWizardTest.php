@@ -216,10 +216,10 @@ describe('when NugsoftOS cannot be reached', function (): void {
         Http::assertNothingSent();
     });
 
-    it('does not ask a product that is not scored on logins for one', function (): void {
-        // Clinic Plus records logins nowhere NugsoftOS can use, so it has no
-        // login target and is never asked for one online. Offline it was,
-        // because the built-in list added the login count to every product.
+    it('asks Clinic Plus for logins offline, as NugsoftOS does online', function (): void {
+        // Clinic Plus went without a login target until it counted
+        // `user_auth_logs`. The built-in list has to follow NugsoftOS, or an
+        // offline install leaves out a metric the product is scored on.
         Http::fake();
 
         $this->install([
@@ -232,6 +232,7 @@ describe('when NugsoftOS cannot be reached', function (): void {
             ['Which column holds the business name?', 'business_name'],
             ['Does a business have branches, and is that where the work is recorded?', false],
             ['Which table best represents real use of this product?', 'sales'],
+            ['login_count_7d', 'skip'],
             ['visits_7d', 'sales'],
             ['lab_requests_7d', 'skip'],
             ['prescriptions_7d', 'skip'],
@@ -239,7 +240,7 @@ describe('when NugsoftOS cannot be reached', function (): void {
             ...$this->declineTwoWayMappings(),
         ])->assertSuccessful()->run();
 
-        expect($this->writtenConfig()['metrics'])->not->toHaveKey('login_count_7d');
+        expect($this->writtenConfig()['metrics'])->toHaveKey('visits_7d');
     });
 });
 

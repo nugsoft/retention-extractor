@@ -396,9 +396,8 @@ return [
     |
     | POScream / POSCafe:   login_count_7d, items_sold_7d, transactions_7d,
     |                       transaction_value_7d
-    | Clinic Plus:          visits_7d, lab_requests_7d, prescriptions_7d,
-    |                       new_patients_7d — no login count: it is not scored
-    |                       on one until it records logins somewhere usable
+    | Clinic Plus:          login_count_7d, visits_7d, lab_requests_7d,
+    |                       prescriptions_7d, new_patients_7d
     | Mfuko:                login_count_7d, member_registrations_7d,
     |                       loan_disbursements_7d, transactions_7d,
     |                       transaction_value_7d
