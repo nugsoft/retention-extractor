@@ -162,6 +162,34 @@ describe('when NugsoftOS cannot be reached', function (): void {
         expect(app(LicenceApplier::class)->isConfigured())->toBeFalse()
             ->and(mapping()->subscription())->toBeNull();
     });
+
+    it('does not fall back to a licence block left in its own file', function (): void {
+        // The case that matters: a file still carrying a mapping from before
+        // the switch to remote. Clinic Plus's repository holds exactly this —
+        // a table and a word its product never reads.
+        withStatusLicence();
+        config()->set('retention-extractor.mapping_source', 'remote');
+        config()->set('retention-extractor.api.url', 'https://retention.test');
+        config()->set('retention-extractor.api.key', str_repeat('b', 64));
+
+        Http::fake(['https://retention.test/api/v1/mapping' => Http::response('down', 503)]);
+
+        expect(app(LicenceApplier::class)->isConfigured())->toBeFalse()
+            ->and(mapping()->licence())->not->toHaveKey('table')
+            ->and(mapping()->licence()['secret'])->toBe('a-signing-key');
+    });
+});
+
+describe('when NugsoftOS has no licence mapping for this product', function (): void {
+    it('switches nobody off, whatever its own file says', function (): void {
+        // A successful answer saying "nothing is mapped" is a decision made
+        // centrally, and is honoured the way subscription() already honours it.
+        withStatusLicence();
+
+        remoteMapping([...schoolMonitorMapping(), 'licence' => null]);
+
+        expect(app(LicenceApplier::class)->isConfigured())->toBeFalse();
+    });
 });
 
 describe('a product that owns its own mapping', function (): void {
