@@ -178,3 +178,17 @@ function postLicence(string $body, ?string $signature): TestResponse
         $body,
     );
 }
+
+function licencePayload(array $overrides = []): array
+{
+    return [
+        'external_id' => '1',
+        'product' => 'poscream',
+        'grants_access' => true,
+        'status' => 'active',
+        'end_date' => now()->addYear()->toDateString(),
+        'effective_end_date' => now()->addYear()->toDateString(),
+        'licence_version' => 1,
+        ...$overrides,
+    ];
+}

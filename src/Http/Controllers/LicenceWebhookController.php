@@ -52,7 +52,7 @@ class LicenceWebhookController extends Controller
                 // the two sides are known to disagree — the sender thinks this
                 // licence is current and here it is old — so saying nothing
                 // would withhold the reading at the moment it is worth most.
-                'grants_access' => $applier->grantsAccess($licence->externalId),
+                'grants_access' => $applier->grantsAccess($licence->externalId, $licence->branchExternalId),
             ]);
         }
 
@@ -61,6 +61,7 @@ class LicenceWebhookController extends Controller
         } catch (Throwable $exception) {
             Log::error('Failed to apply a licence change from NugsoftOS.', [
                 'external_id' => $licence->externalId,
+                'branch_external_id' => $licence->branchExternalId,
                 'exception' => $exception->getMessage(),
             ]);
 
@@ -68,7 +69,9 @@ class LicenceWebhookController extends Controller
         }
 
         return new JsonResponse([
-            'message' => $written > 0 ? 'Licence applied.' : 'No matching client here.',
+            'message' => $written > 0
+                ? 'Licence applied.'
+                : ($licence->isForBranch() ? 'No matching branch here.' : 'No matching client here.'),
             'applied' => true,
             'rows_written' => $written,
             'licence_version' => $licence->licenceVersion,
@@ -78,7 +81,7 @@ class LicenceWebhookController extends Controller
             // wait a day to find out whether the change took. Null where this
             // product cannot be read back, which is every product without a
             // licence mapping configured.
-            'grants_access' => $applier->grantsAccess($licence->externalId),
+            'grants_access' => $applier->grantsAccess($licence->externalId, $licence->branchExternalId),
         ]);
     }
 }

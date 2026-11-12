@@ -7,7 +7,11 @@ namespace Nugsoft\RetentionExtractor\Licensing;
 use Illuminate\Support\Carbon;
 
 /**
- * What NugsoftOS says about one client's licence.
+ * What NugsoftOS says about one client's licence, or one branch's.
+ *
+ * `branchExternalId` is set where the product licenses each branch on its own
+ * — PosCream bills a branch, not a business — and names the branch exactly as
+ * this product pushed it. Null means the licence covers the whole client.
  *
  * Deliberately small. `grantsAccess` is the field this product acts on; the
  * dates are here so a product can tell its own users when their licence ends
@@ -23,7 +27,13 @@ final readonly class LicenceState
         public ?Carbon $endDate,
         public ?Carbon $effectiveEndDate,
         public int $licenceVersion,
+        public ?string $branchExternalId = null,
     ) {}
+
+    public function isForBranch(): bool
+    {
+        return $this->branchExternalId !== null;
+    }
 
     /**
      * @param  array<string, mixed>  $payload
@@ -37,6 +47,9 @@ final readonly class LicenceState
             endDate: self::date($payload['end_date'] ?? null),
             effectiveEndDate: self::date($payload['effective_end_date'] ?? null),
             licenceVersion: (int) ($payload['licence_version'] ?? 0),
+            branchExternalId: filled($payload['branch_external_id'] ?? null)
+                ? (string) $payload['branch_external_id']
+                : null,
         );
     }
 

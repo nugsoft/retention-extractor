@@ -284,6 +284,15 @@ return [
     |
     |                'where' => ['deleted_at' => null],
     |
+    |   'branch' licenses each branch on its own. Name the column on the
+    |            subscription table holding the branch's key (the same key
+    |            `clients.branches.key` points at) and every branch is
+    |            reported with its own term instead of the client's latest.
+    |            NugsoftOS then keeps one licence per branch, and a licence
+    |            mapping must name a `driver` that can switch one branch:
+    |
+    |                'branch' => 'branch_id',
+    |
     */
 
     'subscription' => null,

@@ -10,8 +10,9 @@ use Nugsoft\RetentionExtractor\Licensing\LicenceState;
 /**
  * A product's own licence class, keeping its decisions in memory.
  *
- * Knows one client, `1`. Anyone else is not here, which is what a real
- * driver says by returning 0.
+ * Knows one client, `1`, and its branches `10` and `11`. Anyone else is not
+ * here, which is what a real driver says by returning 0. A branch's state is
+ * kept under "client/branch".
  */
 class RecordingLicenceDriver implements LicenceDriver
 {
@@ -24,13 +25,22 @@ class RecordingLicenceDriver implements LicenceDriver
             return 0;
         }
 
-        self::$access[$licence->externalId] = $licence->grantsAccess;
+        if ($licence->isForBranch() && ! in_array($licence->branchExternalId, ['10', '11'], true)) {
+            return 0;
+        }
+
+        self::$access[self::key($licence->externalId, $licence->branchExternalId)] = $licence->grantsAccess;
 
         return 1;
     }
 
-    public function grantsAccess(string $externalId): ?bool
+    public function grantsAccess(string $externalId, ?string $branchExternalId = null): ?bool
     {
-        return self::$access[$externalId] ?? null;
+        return self::$access[self::key($externalId, $branchExternalId)] ?? null;
+    }
+
+    public static function key(string $externalId, ?string $branchExternalId = null): string
+    {
+        return $branchExternalId === null ? $externalId : "{$externalId}/{$branchExternalId}";
     }
 }

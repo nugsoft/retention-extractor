@@ -202,17 +202,17 @@ class StatusCommand extends Command
     {
         try {
             $row = DB::table('retention_licences')
-                ->selectRaw('count(*) as clients, max(updated_at) as last')
+                ->selectRaw('count(*) as licences, max(updated_at) as last')
                 ->first();
         } catch (Throwable) {
             return 'never — the bookkeeping table is missing, so run migrations';
         }
 
-        if ($row === null || (int) $row->clients === 0) {
+        if ($row === null || (int) $row->licences === 0) {
             return 'never';
         }
 
-        return "{$row->last} ({$row->clients} client(s))";
+        return "{$row->last} ({$row->licences} licence(s))";
     }
 
     private function yesNo(bool $value): string
