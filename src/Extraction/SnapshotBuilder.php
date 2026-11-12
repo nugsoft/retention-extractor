@@ -75,7 +75,102 @@ class SnapshotBuilder
     }
 
     /**
-     * Null when the product does not track subscriptions locally.
+     * Every licence term to report for this client.
+     *
+     * One for the client, as it has always been — or, where the mapping names
+     * a `branch` column, one for each branch. PosCream bills a branch, not a
+     * business: each branch has its own licence row and its own end date, and
+     * reporting only the latest of them made a business with one paid branch
+     * and three lapsed ones read as wholly paid up.
+     *
+     * Empty when the product does not track subscriptions locally, and for a
+     * branch-billed client whose branches have no term recorded.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function subscriptionPayloads(ClientRecord $client): array
+    {
+        $mapping = app(ProductMapping::class)->subscription();
+        $branchColumn = is_array($mapping) ? ($mapping['branch'] ?? null) : null;
+
+        if (! is_string($branchColumn) || $branchColumn === '' || blank($mapping['table'] ?? null)) {
+            $payload = $this->subscriptionPayload($client);
+
+            return $payload === null ? [] : [$payload];
+        }
+
+        $payloads = [];
+
+        foreach ($client->branches as $branch) {
+            $payload = $this->branchSubscriptionPayload($client, $branch, $mapping, $branchColumn);
+
+            if ($payload !== null) {
+                $payloads[] = $payload;
+            }
+        }
+
+        return $payloads;
+    }
+
+    /**
+     * One branch's own term: the row that ends last among those naming it.
+     *
+     * The branch's key is its primary key here, so nothing else is needed to
+     * keep one client's branch from reading another's term.
+     *
+     * @param  array<string, mixed>  $mapping
+     * @return array<string, mixed>|null
+     */
+    private function branchSubscriptionPayload(
+        ClientRecord $client,
+        BranchRecord $branch,
+        array $mapping,
+        string $branchColumn,
+    ): ?array {
+        $query = DB::table($mapping['table'])->where($branchColumn, $branch->key);
+
+        $this->applyWhere($query, $mapping['where'] ?? null);
+
+        $row = $query->orderByDesc($mapping['end'] ?? 'ends_at')->first();
+
+        if ($row === null) {
+            return null;
+        }
+
+        $start = $row->{$mapping['start'] ?? 'starts_at'} ?? null;
+        $end = $row->{$mapping['end'] ?? 'ends_at'} ?? null;
+
+        if (blank($start) || blank($end)) {
+            return null;
+        }
+
+        $status = $this->mapStatus($row->{$mapping['status'] ?? 'status'} ?? null, $mapping, (string) $end);
+
+        // Switched off with time still on the term is a suspension. Off with
+        // the term run out is simply expired, whoever flipped the switch —
+        // PosCream's own expiry job turns every lapsed branch off, and calling
+        // each of those "suspended" told NugsoftOS a story nobody had acted.
+        if ($status === 'active') {
+            $applier = app(LicenceApplier::class);
+
+            if ($applier->isConfigured() && $applier->grantsAccess($client->externalId, $branch->externalId) === false) {
+                $status = 'suspended';
+            }
+        }
+
+        return [
+            ...$client->toPayload(),
+            'product' => $this->product,
+            'branch_external_id' => $branch->externalId,
+            'start_date' => substr((string) $start, 0, 10),
+            'end_date' => substr((string) $end, 0, 10),
+            'status' => $status,
+        ];
+    }
+
+    /**
+     * The client's term, for a product that licenses the whole client. Null
+     * when the product does not track subscriptions locally.
      *
      * @return array<string, mixed>|null
      */

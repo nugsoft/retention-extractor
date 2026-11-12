@@ -41,20 +41,6 @@ function withCeilingLicence(): void
     ]);
 }
 
-function licencePayload(array $overrides = []): array
-{
-    return [
-        'external_id' => '1',
-        'product' => 'poscream',
-        'grants_access' => true,
-        'status' => 'active',
-        'end_date' => now()->addYear()->toDateString(),
-        'effective_end_date' => now()->addYear()->toDateString(),
-        'licence_version' => 1,
-        ...$overrides,
-    ];
-}
-
 function applier(): LicenceApplier
 {
     return new LicenceApplier(config('retention-extractor.licence', []));

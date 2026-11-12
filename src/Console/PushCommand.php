@@ -77,7 +77,7 @@ class PushCommand extends Command
         bool $dryRun,
     ): void {
         $activity = $snapshots->activityPayload($client);
-        $subscription = $snapshots->subscriptionPayload($client);
+        $subscriptions = $snapshots->subscriptionPayloads($client);
 
         if ($dryRun) {
             $this->line('');
@@ -87,7 +87,7 @@ class PushCommand extends Command
             );
             $this->line(json_encode($activity, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-            if ($subscription !== null) {
+            foreach ($subscriptions as $subscription) {
                 $this->line(json_encode($subscription, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             }
 
@@ -96,8 +96,23 @@ class PushCommand extends Command
 
         $api->pushActivity($activity);
 
-        if ($subscription !== null) {
-            $api->pushSubscription($subscription);
+        // After the activity, which is what tells NugsoftOS the branches
+        // exist: a branch's term names a branch it must already know.
+        //
+        // One branch's bad term must not cost its neighbours theirs, so every
+        // one is sent before the first refusal is reported for the client.
+        $refused = null;
+
+        foreach ($subscriptions as $subscription) {
+            try {
+                $api->pushSubscription($subscription);
+            } catch (Throwable $exception) {
+                $refused ??= $exception;
+            }
+        }
+
+        if ($refused !== null) {
+            throw $refused;
         }
     }
 

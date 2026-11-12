@@ -76,7 +76,7 @@ class SyncLicenceCommand extends Command
             if ($dryRun) {
                 $this->line(sprintf(
                     '  %s — %s (v%d)',
-                    $licence->externalId,
+                    $licence->externalId.($licence->isForBranch() ? " branch {$licence->branchExternalId}" : ''),
                     $licence->grantsAccess ? 'may work' : 'switched off',
                     $licence->licenceVersion,
                 ));
@@ -90,7 +90,8 @@ class SyncLicenceCommand extends Command
                 $written = $applier->apply($licence);
                 $written > 0 ? $applied++ : $missing++;
             } catch (Throwable $exception) {
-                $this->components->warn("{$licence->externalId}: {$exception->getMessage()}");
+                $who = $licence->externalId.($licence->isForBranch() ? " branch {$licence->branchExternalId}" : '');
+                $this->components->warn("{$who}: {$exception->getMessage()}");
             }
         }
 

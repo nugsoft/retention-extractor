@@ -209,6 +209,29 @@ never reporting them would hide exactly the clients most at risk.
 
 Leave it `null` and no subscription data is pushed.
 
+#### Licensing each branch on its own
+
+Where every branch has its own licence row and end date, as in PosCream, name
+the column holding the branch's key:
+
+```php
+'subscription' => [
+    'table' => 'licences',
+    'via' => 'business_id',
+    'branch' => 'branch_id',
+    'start' => 'start_date',
+    'end' => 'end_date',
+],
+```
+
+Each branch is then pushed with its own term and a `branch_external_id`, and
+NugsoftOS keeps one licence per branch. The licence it sends back names the
+branch too (`LicenceState::$branchExternalId`), so the `licence` mapping must
+be a `driver` that can switch one branch: the table strategies would switch
+every branch of the client at once, and refuse a branch licence instead.
+A branch switched off with time left on its term is reported as `suspended`;
+one past its term is `expired`, whoever switched it off.
+
 The row reported is **whichever ends last**, which makes two keys worth knowing
 about wherever a product keeps more than one.
 
@@ -296,7 +319,8 @@ token is deleted. That knowledge belongs in PosCream, not in this package:
 
 The class implements `Nugsoft\RetentionExtractor\Licensing\LicenceDriver`:
 `apply(LicenceState $licence): int` returns how many rows hold that client's
-licence (0 means no such client here), and `grantsAccess(string $externalId): ?bool`
+licence (0 means no such client here), and
+`grantsAccess(string $externalId, ?string $branchExternalId = null): ?bool`
 reads the current state back. It is resolved from the container. The package
 still verifies signatures, drops stale deliveries, records what was applied and
 reports back. A driver stays yours under `RETENTION_MAPPING_SOURCE=remote`;

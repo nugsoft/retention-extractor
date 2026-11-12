@@ -27,7 +27,8 @@ namespace Nugsoft\RetentionExtractor\Licensing;
 interface LicenceDriver
 {
     /**
-     * Put this client into the state NugsoftOS describes.
+     * Put this client into the state NugsoftOS describes — or, where
+     * `$licence->branchExternalId` is set, that one branch of it.
      *
      * @return int how many rows hold this client's licence state — 0 meaning
      *             there is no such client here, which is reported as such and
@@ -36,10 +37,11 @@ interface LicenceDriver
     public function apply(LicenceState $licence): int;
 
     /**
-     * Whether this product currently lets that client work.
+     * Whether this product currently lets that client work — or that one
+     * branch of it, when a branch is named.
      *
-     * Null when it cannot tell, including when there is no such client, so
-     * "no" and "no idea" stay apart.
+     * Null when it cannot tell, including when there is no such client or
+     * branch, so "no" and "no idea" stay apart.
      */
-    public function grantsAccess(string $externalId): ?bool;
+    public function grantsAccess(string $externalId, ?string $branchExternalId = null): ?bool;
 }

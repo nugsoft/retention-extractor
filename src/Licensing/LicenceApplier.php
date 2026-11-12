@@ -26,6 +26,11 @@ use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
  * Or, where no single column can say it, a `driver` — a class of the
  * product's own implementing LicenceDriver. PosCream.
  *
+ * A licence may name one branch rather than the whole client, where the
+ * product bills per branch. Only a driver can apply one: the two built-in
+ * strategies write every row the client owns, and a branch's suspension
+ * written that way would switch off every branch of the business.
+ *
  * The ceiling strategy revokes by setting the date to yesterday rather than by
  * deleting a term, and grants by clearing it so the product's own paid term
  * governs again. That is deliberate: it means a mistake here can only ever
@@ -54,6 +59,14 @@ class LicenceApplier
         $this->assertConfigured();
 
         $driver = $this->driver();
+
+        if ($driver === null && $licence->isForBranch()) {
+            throw ConfigurationException::missing(
+                'licence.driver',
+                'NugsoftOS licenses this product per branch. Name a driver that can switch one branch, '
+                .'because the table mapping would switch every branch of the client at once.',
+            );
+        }
 
         if ($driver !== null) {
             $written = $driver->apply($licence);
@@ -92,17 +105,19 @@ class LicenceApplier
      * between the two systems when they agreed perfectly.
      *
      * Null when licence state cannot be read, so a caller can tell "no" from
-     * "no idea" rather than guessing on the client's behalf.
+     * "no idea" rather than guessing on the client's behalf. That includes a
+     * branch asked about without a driver: the table mapping only knows the
+     * client as a whole.
      */
-    public function grantsAccess(string $externalId): ?bool
+    public function grantsAccess(string $externalId, ?string $branchExternalId = null): ?bool
     {
         $driver = $this->driver();
 
         if ($driver !== null) {
-            return $driver->grantsAccess($externalId);
+            return $driver->grantsAccess($externalId, $branchExternalId);
         }
 
-        if (! $this->isConfigured() || blank($this->config['via'] ?? null)) {
+        if ($branchExternalId !== null || ! $this->isConfigured() || blank($this->config['via'] ?? null)) {
             return null;
         }
 
@@ -148,7 +163,7 @@ class LicenceApplier
     public function isStale(LicenceState $licence): bool
     {
         $applied = DB::table('retention_licences')
-            ->where('external_id', $licence->externalId)
+            ->where($this->appliedKey($licence))
             ->value('licence_version');
 
         return $applied !== null && $licence->licenceVersion < (int) $applied;
@@ -332,7 +347,7 @@ class LicenceApplier
     private function rememberApplied(LicenceState $licence): void
     {
         DB::table('retention_licences')->updateOrInsert(
-            ['external_id' => $licence->externalId],
+            $this->appliedKey($licence),
             [
                 'licence_version' => $licence->licenceVersion,
                 'grants_access' => $licence->grantsAccess,
@@ -341,6 +356,22 @@ class LicenceApplier
                 'created_at' => now(),
             ],
         );
+    }
+
+    /**
+     * Which row remembers this licence. Each branch licensed on its own keeps
+     * its own version: a branch renewed this morning must not make a
+     * suspension of its neighbour read as stale. The whole client is the
+     * empty branch, so the unique key still holds one row for it.
+     *
+     * @return array{external_id: string, branch_external_id: string}
+     */
+    private function appliedKey(LicenceState $licence): array
+    {
+        return [
+            'external_id' => $licence->externalId,
+            'branch_external_id' => $licence->branchExternalId ?? '',
+        ];
     }
 
     /**
