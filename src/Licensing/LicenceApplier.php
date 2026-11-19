@@ -6,6 +6,7 @@ namespace Nugsoft\RetentionExtractor\Licensing;
 
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
@@ -131,6 +132,21 @@ class LicenceApplier
             ->whereIn($this->primaryKey(), $ids)
             ->get();
 
+        $today = now()->startOfDay();
+
+        $rows = $this->stillRunning($rows, $today);
+
+        // Every term behind the client has run out. Nothing here is holding
+        // them back or letting them in, so there is nothing to report — the
+        // dates already say expired, and "no idea" lets them say it.
+        if ($rows->isEmpty()) {
+            return null;
+        }
+
+        if ($this->anyBlocked($rows)) {
+            return false;
+        }
+
         $status = $this->config['status'] ?? null;
 
         if (is_array($status)) {
@@ -144,7 +160,6 @@ class LicenceApplier
         /** @var array<string, mixed> $ceiling */
         $ceiling = $this->config['ceiling'];
         $column = (string) $ceiling['column'];
-        $today = now()->startOfDay();
 
         return $rows->every(function ($row) use ($column, $today): bool {
             $capped = $row->{$column} ?? null;
@@ -152,6 +167,67 @@ class LicenceApplier
             // No cap at all means nothing is holding this client back.
             return $capped === null || Carbon::parse((string) $capped)->startOfDay()->gte($today);
         });
+    }
+
+    /**
+     * Only the rows whose own term has not yet run out, where the mapping
+     * says how to tell.
+     *
+     * A product that adds a row per cycle keeps every cycle it ever sold, and
+     * the read-back asks each of them. A deadline left on last year's cycle
+     * then held the client at "no access" for good — capping a term that had
+     * already ended, and so restricting nothing the product would enforce.
+     *
+     * `term_ends` names the columns whose latest value is when a row's term is
+     * over (School Monitor: the paid end and the grace end). Without it every
+     * row is asked, as it always was.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     * @return Collection<int, \stdClass>
+     */
+    private function stillRunning(Collection $rows, Carbon $today): Collection
+    {
+        $columns = array_values(array_filter((array) ($this->config['term_ends'] ?? []), 'filled'));
+
+        if ($columns === []) {
+            return $rows;
+        }
+
+        return $rows->filter(function (object $row) use ($columns, $today): bool {
+            $ends = array_filter(array_map(fn (string $column): mixed => $row->{$column} ?? null, $columns), 'filled');
+
+            // A row that says nothing about its end is not one to rule out.
+            if ($ends === []) {
+                return true;
+            }
+
+            return collect($ends)
+                ->contains(fn (mixed $end): bool => Carbon::parse((string) $end)->startOfDay()->gte($today));
+        })->values();
+    }
+
+    /**
+     * Whether the product has blocked the client by a means of its own.
+     *
+     * NugsoftOS writes one column, but a product can stop somebody working in
+     * others it owns — School Monitor suspends a branch by stamping
+     * `suspended_at` on every live cycle, and reading only the ceiling back
+     * reported every such branch as free to work. `blocks` names those
+     * columns; any of them set on any row means no. They are read and never
+     * written: lifting a product's own suspension is the product's business.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     */
+    private function anyBlocked(Collection $rows): bool
+    {
+        $columns = array_values(array_filter((array) ($this->config['blocks'] ?? []), 'filled'));
+
+        if ($columns === []) {
+            return false;
+        }
+
+        return $rows->contains(fn (object $row): bool => collect($columns)
+            ->contains(fn (string $column): bool => filled($row->{$column} ?? null)));
     }
 
     /**

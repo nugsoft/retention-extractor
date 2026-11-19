@@ -293,6 +293,33 @@ return [
     |
     |                'branch' => 'branch_id',
     |
+    | A product that adds a row per cycle, rather than editing one row per
+    | term, wants three more. All optional; leave them out and nothing changes.
+    |
+    |   'pick'     'last' (the default) reports the row ending last. 'current'
+    |              reports the row that has started and ends last, or the next
+    |              to begin where none has — so a renewal bought in advance is
+    |              not reported as the term running today. Name 'primary_key'
+    |              too and a tie goes to the newest row.
+    |
+    |   'grace'    a column holding free access after the end.
+    |   'deadline' a column holding a payment deadline, capping end and grace.
+    |
+    |              With either, the push also says when access really ends and
+    |              why: `effective_end_date`, `ends_because` (term, grace or
+    |              payment_deadline), `grace_ends_at` and `payment_deadline`.
+    |              `end_date` stays the paid term. A deadline that has passed
+    |              while the term still runs is reported as suspended, not
+    |              expired — the time was bought, and it is being withheld.
+    |
+    | School Monitor, whose renewals are new rows and whose revoked cycles are
+    | permanent:
+    |
+    |       'pick'     => 'current',
+    |       'grace'    => 'grace_ends_at',
+    |       'deadline' => 'license_expires_at',
+    |       'where'    => ['deleted_at' => null, 'revoked_at' => null],
+    |
     */
 
     'subscription' => null,
@@ -325,10 +352,11 @@ return [
     |
     |   'ceiling'  a date that caps access. School Monitor has no status at
     |              all — access is derived from dates, and `license_expires_at`
-    |              is an administrative ceiling on them:
+    |              (its payment deadline, which its own Finance staff set too)
+    |              caps them:
     |
     |       'table'   => 'branch_subscriptions',
-    |       'via'     => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    |       'via'     => 'school_branch_id',
     |       'ceiling' => ['column' => 'license_expires_at'],
     |
     | The ceiling is set to yesterday to revoke and cleared to grant, so the
@@ -348,6 +376,18 @@ return [
     | null value means IS NULL:
     |
     |       'where' => ['deleted_at' => null],
+    |
+    | Two more are read back and never written, for a product that keeps more
+    | than one fact about access:
+    |
+    |   'blocks'    columns any of which, set on any row, means the client may
+    |               not work — a suspension the product keeps for itself.
+    |               School Monitor: ['suspended_at'].
+    |
+    |   'term_ends' columns whose latest value is when a row's own term is over.
+    |               Rows already past it are not asked, so a ceiling left on a
+    |               cycle that ended last year cannot hold the client at "no
+    |               access". School Monitor: ['end_date', 'grace_ends_at'].
     |
     */
 
