@@ -297,7 +297,7 @@ return [
     |                'branch' => 'branch_id',
     |
     | A product that adds a row per cycle, rather than editing one row per
-    | term, wants three more. All optional; leave them out and nothing changes.
+    | term, wants four more. All optional; leave them out and nothing changes.
     |
     |   'pick'     'last' (the default) reports the row ending last. 'current'
     |              reports the row that has started and ends last, or the next
@@ -313,19 +313,28 @@ return [
     |              payment_deadline), `grace_ends_at` and `payment_deadline`.
     |              `end_date` stays the paid term. The status comes from these
     |              dates: active, grace, suspended or expired, or cancelled
-    |              where your status column says so. A deadline that has
+    |              where `cancelled` below or your status column says so. A
+    |              deadline that has
     |              passed while the paid term still runs is suspended, not
     |              expired — the time was bought, and it is being withheld.
     |              One that cuts grace short is expired: grace was not bought.
     |
-    | School Monitor, whose renewals are new rows and whose revoked cycles are
-    | permanent:
+    |   'cancelled' a column that, once set, means the term was terminated.
+    |              Such a row is reported as cancelled, but only where nothing
+    |              newer stands: a term nobody cancelled that is still running
+    |              or yet to begin comes first. Otherwise whichever happened
+    |              last wins — the latest cancellation, or the live term
+    |              running out. Leave it out of `where`, or it is never seen.
     |
-    |       'via'      => 'school_branch_id',
-    |       'pick'     => 'current',
-    |       'grace'    => 'grace_ends_at',
-    |       'deadline' => 'license_expires_at',
-    |       'where'    => ['deleted_at' => null, 'revoked_at' => null],
+    | School Monitor, whose renewals are new rows and whose revoked cycles are
+    | terminated:
+    |
+    |       'via'       => 'school_branch_id',
+    |       'pick'      => 'current',
+    |       'grace'     => 'grace_ends_at',
+    |       'deadline'  => 'license_expires_at',
+    |       'cancelled' => 'revoked_at',
+    |       'where'     => ['deleted_at' => null],
     |
     */
 

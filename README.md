@@ -268,16 +268,17 @@ closed branch's term is left out too. The licence path accepts it as well:
 
 Some products add a row for every cycle rather than editing one row per term:
 School Monitor renews by inserting rows, keeps every cycle it ever sold, and
-treats a revoked cycle as permanent. "Whichever ends last" is then wrong — a
-renewal bought in advance ends later than the cycle running today. Three
+marks a terminated cycle with `revoked_at`. "Whichever ends last" is then wrong
+— a renewal bought in advance ends later than the cycle running today. Four
 optional keys describe such a product:
 
 ```php
-'via'      => 'school_branch_id',    // each branch is a client
-'pick'     => 'current',             // started and ends last, else the next to begin
-'grace'    => 'grace_ends_at',       // free access after the end
-'deadline' => 'license_expires_at',  // payment deadline, caps end and grace
-'where'    => ['deleted_at' => null, 'revoked_at' => null],
+'via'       => 'school_branch_id',    // each branch is a client
+'pick'      => 'current',             // started and ends last, else the next to begin
+'grace'     => 'grace_ends_at',       // free access after the end
+'deadline'  => 'license_expires_at',  // payment deadline, caps end and grace
+'cancelled' => 'revoked_at',          // set once the term was terminated
+'where'     => ['deleted_at' => null],
 ```
 
 With `grace` or `deadline` named, the push says when access really ends and
@@ -300,6 +301,17 @@ With `grace` or `deadline` named, the dates decide the status (`active`,
 `grace`, `suspended` or `expired`) and your status column no longer does, with
 one exception: where it says `cancelled`, directly or through `status_map`,
 that is reported. No date can tell a cancellation.
+
+`cancelled` names a column that, once set, means the term was terminated, and
+such a row is reported as `cancelled`, but only where nothing newer stands:
+
+- A cycle nobody cancelled that is still running, or yet to begin, is reported
+  first. An old cycle terminated long ago does not hide the one paid for today.
+- Otherwise whichever happened last is the client's state: the latest
+  cancellation, if it came on or after the live cycle ran out (grace
+  included), or else that cycle, as `expired`.
+
+Keep that column out of `where`, or the terminated rows are never seen at all.
 
 ### Licences (optional)
 

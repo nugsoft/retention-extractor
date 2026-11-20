@@ -12,7 +12,7 @@ use Nugsoft\RetentionExtractor\Licensing\LicenceState;
  * A product that adds a row per cycle rather than editing one row per term.
  *
  * School Monitor's shape: renewals bought in advance are rows that have not
- * started, a revoked cycle is permanent and can outlast a newer one, and three
+ * started, a revoked cycle was terminated and can outlast a newer one, and three
  * dates decide when access ends — the paid end, free grace after it, and a
  * payment deadline that caps both.
  */
@@ -27,7 +27,8 @@ function withCycleSubscription(array $overrides = []): void
         'end' => 'end_date',
         'grace' => 'grace_ends_at',
         'deadline' => 'license_expires_at',
-        'where' => ['deleted_at' => null, 'revoked_at' => null],
+        'cancelled' => 'revoked_at',
+        'where' => ['deleted_at' => null],
         ...$overrides,
     ]);
 }
@@ -128,6 +129,67 @@ describe('which cycle is the term', function (): void {
         cycle($this->branch, day(-10), day(355));
 
         expect(termReported()['end_date'])->toBe(day(355));
+    });
+
+    it('reports a cycle terminated while it ran as cancelled', function (): void {
+        withCycleSubscription();
+
+        cycle($this->branch, day(-465), day(-100));
+        cycle($this->branch, day(-100), day(265), ['revoked_at' => now()->subDays(5)]);
+
+        expect(termReported())
+            ->status->toBe('cancelled')
+            ->end_date->toBe(day(265));
+    });
+
+    it('reports a cancellation without grace or a deadline mapped', function (): void {
+        withCycleSubscription(['grace' => null, 'deadline' => null]);
+
+        cycle($this->branch, day(-100), day(265), ['revoked_at' => now()]);
+
+        expect(termReported()['status'])->toBe('cancelled');
+    });
+
+    it('reports a cycle that ran out after an older cancellation as expired', function (): void {
+        withCycleSubscription();
+
+        cycle($this->branch, day(-500), day(-135), ['revoked_at' => now()->subDays(300)]);
+        cycle($this->branch, day(-200), day(-10));
+
+        expect(termReported())
+            ->status->toBe('expired')
+            ->end_date->toBe(day(-10));
+    });
+
+    it('reports a cancellation that came after the live cycle ran out', function (): void {
+        withCycleSubscription();
+
+        cycle($this->branch, day(-400), day(-30));
+        cycle($this->branch, day(-29), day(336), ['revoked_at' => now()->subDays(3)]);
+
+        expect(termReported()['status'])->toBe('cancelled');
+    });
+
+    it('keeps a cycle in grace over a renewal that was cancelled', function (): void {
+        withCycleSubscription();
+
+        cycle($this->branch, day(-365), day(-2), ['grace_ends_at' => day(5)]);
+        cycle($this->branch, day(-1), day(364), ['revoked_at' => now()]);
+
+        expect(termReported())
+            ->status->toBe('grace')
+            ->end_date->toBe(day(-2));
+    });
+
+    it('still drops terminated rows where the mapping filters them out', function (): void {
+        withCycleSubscription(['cancelled' => null, 'where' => ['deleted_at' => null, 'revoked_at' => null]]);
+
+        cycle($this->branch, day(-465), day(-100));
+        cycle($this->branch, day(-100), day(265), ['revoked_at' => now()]);
+
+        expect(termReported())
+            ->status->toBe('expired')
+            ->end_date->toBe(day(-100));
     });
 
     it('still reports the row ending last when the mapping does not ask otherwise', function (): void {

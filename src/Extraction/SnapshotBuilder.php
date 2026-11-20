@@ -245,9 +245,84 @@ class SnapshotBuilder
      * the row that has started and ends last, or, where nothing has started
      * yet, the next one to begin. School Monitor's own rule, word for word.
      *
+     * `cancelled` names a column that, once set, means the term was
+     * terminated: School Monitor's `revoked_at`. A term still running, or yet
+     * to begin, that nobody cancelled is reported first, so an old cycle
+     * terminated years ago cannot hide the one paid for today. Where none is,
+     * whichever happened last is the client's state: the latest cancellation,
+     * if it came on or after the live term ran out, or else that term.
+     *
      * @param  array<string, mixed>  $mapping
      */
     private function termRow(Builder $query, array $mapping): ?object
+    {
+        $column = filled($mapping['cancelled'] ?? null) ? (string) $mapping['cancelled'] : null;
+
+        if ($column === null) {
+            return $this->pickRow($query, $mapping);
+        }
+
+        $live = $this->pickRow((clone $query)->whereNull($column), $mapping);
+
+        if ($live !== null && $this->stillRuns($live, $mapping)) {
+            return $live;
+        }
+
+        $cancelled = (clone $query)->whereNotNull($column)->orderByDesc($column);
+
+        if (filled($mapping['primary_key'] ?? null)) {
+            $cancelled->orderByDesc((string) $mapping['primary_key']);
+        }
+
+        $cancelled = $cancelled->first();
+
+        if ($cancelled === null || $live === null) {
+            return $cancelled ?? $live;
+        }
+
+        $ranOut = $this->ranOut($live, $mapping);
+
+        return $ranOut !== null && $this->dateOn($cancelled, $column) >= $ranOut ? $cancelled : $live;
+    }
+
+    /**
+     * Whether a term has yet to begin or is still running, grace included.
+     * A term whose dates cannot be read is not one to rule out.
+     *
+     * @param  array<string, mixed>  $mapping
+     */
+    private function stillRuns(object $row, array $mapping): bool
+    {
+        $today = now()->toDateString();
+        $start = $this->dateOn($row, $mapping['start'] ?? 'starts_at');
+        $ranOut = $this->ranOut($row, $mapping);
+
+        return ($start !== null && $start > $today) || $ranOut === null || $ranOut >= $today;
+    }
+
+    /**
+     * The day a term's access runs out by its own dates: the later of the paid
+     * end and grace.
+     *
+     * @param  array<string, mixed>  $mapping
+     */
+    private function ranOut(object $row, array $mapping): ?string
+    {
+        $end = $this->dateOn($row, $mapping['end'] ?? 'ends_at');
+
+        if ($end === null) {
+            return null;
+        }
+
+        return max($end, $this->dateOn($row, $mapping['grace'] ?? null) ?? $end);
+    }
+
+    /**
+     * The row `pick` chooses among the candidates it is given.
+     *
+     * @param  array<string, mixed>  $mapping
+     */
+    private function pickRow(Builder $query, array $mapping): ?object
     {
         $start = (string) ($mapping['start'] ?? 'starts_at');
         $end = (string) ($mapping['end'] ?? 'ends_at');
@@ -360,13 +435,18 @@ class SnapshotBuilder
      * Where the dates were resolved they decide it, because they are why the
      * mapping named grace or a deadline in the first place. The one word they
      * cannot tell is `cancelled`: a subscription is only cancelled by somebody
-     * saying so, so where the product's own column says it, that stands.
+     * saying so, so where the product says it, that stands — through the
+     * `cancelled` column, or its own status column.
      *
      * @param  array<string, mixed>  $mapping
      * @param  array{grace_ends_at: string|null, payment_deadline: string|null, effective_end_date: string, ends_because: string}|null  $access
      */
     private function termStatus(object $row, array $mapping, string $end, ?array $access): string
     {
+        if ($this->dateOn($row, $mapping['cancelled'] ?? null) !== null) {
+            return 'cancelled';
+        }
+
         $said = $row->{$mapping['status'] ?? 'status'} ?? null;
 
         if ($access === null) {
@@ -463,7 +543,9 @@ class SnapshotBuilder
     {
         $applier = app(LicenceApplier::class);
 
-        if ($access !== null) {
+        // A cancellation is said outright, so it speaks first too: a licence
+        // switched off on a term somebody terminated is still cancelled.
+        if ($access !== null || $this->dateOn($row, $mapping['cancelled'] ?? null) !== null) {
             $status = $this->termStatus($row, $mapping, $end, $access);
 
             if (in_array($status, ['active', 'grace'], true)
