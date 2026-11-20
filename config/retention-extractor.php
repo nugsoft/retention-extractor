@@ -265,8 +265,9 @@ return [
     | Subscriptions (optional)
     |--------------------------------------------------------------------------
     |
-    | Leave null and no subscription data is pushed. NugsoftOS knows five
-    | statuses: active, grace, expired, suspended and cancelled. `status_map`
+    | Leave null and no subscription data is pushed. NugsoftOS knows six
+    | statuses: future, active, grace, expired, suspended and cancelled
+    | (future needs a NugsoftOS that accepts it). `status_map`
     | translates your product's wording into those. Name `grace` or `deadline`
     | below and the dates decide the status instead; your status column then
     | counts only where it says cancelled, which no date can tell.
@@ -303,28 +304,37 @@ return [
     |              reports the row that has started and ends last, or the next
     |              to begin where none has — so a renewal bought in advance is
     |              not reported as the term running today. Name 'primary_key'
-    |              too and a tie goes to the newest row.
+    |              too and a tie goes to the newest row. A row reported that
+    |              has not begun is `future`: the client holds a term but may
+    |              not work until it starts. Suspended instead, where the
+    |              licence read-back says the product suspended it itself.
     |
     |   'grace'    a column holding free access after the end.
     |   'deadline' a column holding a payment deadline, capping end and grace.
     |
     |              With either, the push also says when access really ends and
-    |              why: `effective_end_date`, `ends_because` (term, grace or
-    |              payment_deadline), `grace_ends_at` and `payment_deadline`.
-    |              `end_date` stays the paid term. The status comes from these
-    |              dates: active, grace, suspended or expired, or cancelled
-    |              where `cancelled` below or your status column says so. A
-    |              deadline that has
-    |              passed while the paid term still runs is suspended, not
-    |              expired — the time was bought, and it is being withheld.
-    |              One that cuts grace short is expired: grace was not bought.
+    |              why: `effective_end_date`, `ends_because` (term, grace,
+    |              payment_deadline or cancelled), `grace_ends_at` and
+    |              `payment_deadline`. `end_date` stays the paid term. The
+    |              status comes from these dates: active, grace, suspended or
+    |              expired, or future, or cancelled where `cancelled` below or
+    |              your status column says so. A deadline that has passed
+    |              while the paid term still runs is suspended, not expired —
+    |              the time was bought, and it is being withheld. One that
+    |              cuts grace short is expired: grace was not bought.
     |
     |   'cancelled' a column that, once set, means the term was terminated.
     |              Such a row is reported as cancelled, but only where nothing
     |              newer stands: a term nobody cancelled that is still running
     |              or yet to begin comes first. Otherwise whichever happened
     |              last wins — the latest cancellation, or the live term
-    |              running out. Leave it out of `where`, or it is never seen.
+    |              running out. Access ends on the day it was cancelled, where
+    |              that comes first: `effective_end_date` is that day and
+    |              `ends_because` is cancelled. Naming the column also lifts it
+    |              out of `where`, so keep it filtered there for any install
+    |              still on an extractor that does not know this key: those
+    |              go on dropping terminated rows rather than reporting them
+    |              as live.
     |
     | School Monitor, whose renewals are new rows and whose revoked cycles are
     | terminated:
@@ -334,7 +344,7 @@ return [
     |       'grace'     => 'grace_ends_at',
     |       'deadline'  => 'license_expires_at',
     |       'cancelled' => 'revoked_at',
-    |       'where'     => ['deleted_at' => null],
+    |       'where'     => ['deleted_at' => null, 'revoked_at' => null],
     |
     */
 
@@ -413,11 +423,15 @@ return [
     |               access". School Monitor: ['end_date', 'grace_ends_at'].
     |
     |   'term_starts' columns whose earliest value is when a row's own term
-    |               begins. Rows not yet begun are not asked, or, where none
-    |               has begun, only the next to begin — so a renewal bought
-    |               in advance cannot hold the cycle running today at "no
-    |               access". The same rule as the subscription `pick =>
-    |               current`. School Monitor: ['start_date'].
+    |               begins. Rows not yet begun are not asked, so a renewal
+    |               bought in advance cannot hold the cycle running today at
+    |               "no access" — the same rule as the subscription `pick =>
+    |               current`. Where none has begun the answer is "no idea",
+    |               which lets the push say future, unless `blocks` is set on
+    |               the next cycle to begin. A ceiling on it is not read:
+    |               NugsoftOS's revoke caps waiting cycles too, and School
+    |               Monitor calls such a branch scheduled, not overdue.
+    |               School Monitor: ['start_date'].
     |
     */
 

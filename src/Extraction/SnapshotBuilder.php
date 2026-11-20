@@ -129,7 +129,7 @@ class SnapshotBuilder
     ): ?array {
         $query = DB::table($mapping['table'])->where($branchColumn, $branch->key);
 
-        $this->applyWhere($query, $mapping['where'] ?? null);
+        $this->applyWhere($query, $this->candidateWhere($mapping));
 
         $row = $this->termRow($query, $mapping);
 
@@ -153,7 +153,8 @@ class SnapshotBuilder
         // the term run out is simply expired, whoever flipped the switch —
         // PosCream's own expiry job turns every lapsed branch off, and calling
         // each of those "suspended" told NugsoftOS a story nobody had acted.
-        if (in_array($status, ['active', 'grace'], true)) {
+        // A term yet to begin can be suspended too, where the product says so.
+        if (in_array($status, ['active', 'grace', 'future'], true)) {
             $applier = app(LicenceApplier::class);
 
             if ($applier->isConfigured() && $applier->grantsAccess($client->externalId, $branch->externalId) === false) {
@@ -204,7 +205,7 @@ class SnapshotBuilder
             $this->scopeToClient($query, $mapping['via'], $client);
         }
 
-        $this->applyWhere($query, $mapping['where'] ?? null);
+        $this->applyWhere($query, $this->candidateWhere($mapping));
 
         $row = $this->termRow($query, $mapping);
 
@@ -362,8 +363,12 @@ class SnapshotBuilder
      * caps everything, end and grace alike. A deadline only ever shortens:
      * one later than the term it sits on changes nothing.
      *
-     * Null when neither column is mapped, so a product that never named them
-     * sends exactly what it sent before.
+     * A term that was cancelled ends on the day it was, where that comes
+     * first: School Monitor's `revoked_at` ends a cycle there and then, so the
+     * dates the row was sold with no longer say when access stopped.
+     *
+     * Null when neither grace nor a deadline is mapped, so a product that
+     * never named them sends exactly what it sent before.
      *
      * @param  array<string, mixed>  $mapping
      * @return array{grace_ends_at: string|null, payment_deadline: string|null, effective_end_date: string, ends_because: string}|null
@@ -391,6 +396,13 @@ class SnapshotBuilder
         if ($deadline !== null && $deadline < $effective) {
             $effective = $deadline;
             $because = 'payment_deadline';
+        }
+
+        $cancelled = $this->dateOn($row, $mapping['cancelled'] ?? null);
+
+        if ($cancelled !== null && $cancelled <= $effective) {
+            $effective = $cancelled;
+            $because = 'cancelled';
         }
 
         return [
@@ -438,13 +450,23 @@ class SnapshotBuilder
      * saying so, so where the product says it, that stands — through the
      * `cancelled` column, or its own status column.
      *
+     * Then, under `pick => current`, a term yet to begin is `future`: School
+     * Monitor gives a branch whose only cycle is still to come no access
+     * until it starts, and calling it active said otherwise. School Monitor
+     * ranks the states revoked, suspended, scheduled, active, grace, overdue,
+     * expired; the licence read-back adds the suspension afterwards.
+     *
      * @param  array<string, mixed>  $mapping
      * @param  array{grace_ends_at: string|null, payment_deadline: string|null, effective_end_date: string, ends_because: string}|null  $access
      */
     private function termStatus(object $row, array $mapping, string $end, ?array $access): string
     {
-        if ($this->dateOn($row, $mapping['cancelled'] ?? null) !== null) {
+        if ($this->isCancelled($row, $mapping)) {
             return 'cancelled';
+        }
+
+        if ($this->notYetBegun($row, $mapping)) {
+            return 'future';
         }
 
         $said = $row->{$mapping['status'] ?? 'status'} ?? null;
@@ -456,6 +478,58 @@ class SnapshotBuilder
         return $this->explicitStatus($said, $mapping) === 'cancelled'
             ? 'cancelled'
             : $this->resolvedStatus($access, $end);
+    }
+
+    /**
+     * @param  array<string, mixed>  $mapping
+     */
+    private function isCancelled(object $row, array $mapping): bool
+    {
+        return $this->dateOn($row, $mapping['cancelled'] ?? null) !== null;
+    }
+
+    /**
+     * Whether the term reported is one that has not started — only asked for
+     * a product that adds a row per cycle, where such a row is a term held
+     * and waiting rather than a date somebody mistyped.
+     *
+     * @param  array<string, mixed>  $mapping
+     */
+    private function notYetBegun(object $row, array $mapping): bool
+    {
+        if (($mapping['pick'] ?? 'last') !== 'current') {
+            return false;
+        }
+
+        $start = $this->dateOn($row, $mapping['start'] ?? 'starts_at');
+
+        return $start !== null && $start > now()->toDateString();
+    }
+
+    /**
+     * The mapping's `where`, less the `cancelled` column.
+     *
+     * A mapping may filter that column out as well as name it, and should
+     * where it is served to installs of more than one version: an extractor
+     * too old to know `cancelled` then keeps dropping those rows, rather than
+     * reporting a terminated cycle as the live term. One that knows it needs
+     * them, so lifts the filter here.
+     *
+     * @param  array<string, mixed>  $mapping
+     * @return array<string, mixed>|null
+     */
+    private function candidateWhere(array $mapping): ?array
+    {
+        $where = $mapping['where'] ?? null;
+        $column = $mapping['cancelled'] ?? null;
+
+        if (! is_array($where) || blank($column)) {
+            return $where;
+        }
+
+        unset($where[(string) $column]);
+
+        return $where;
     }
 
     private function dateOn(object $row, mixed $column): ?string
@@ -544,11 +618,12 @@ class SnapshotBuilder
         $applier = app(LicenceApplier::class);
 
         // A cancellation is said outright, so it speaks first too: a licence
-        // switched off on a term somebody terminated is still cancelled.
-        if ($access !== null || $this->dateOn($row, $mapping['cancelled'] ?? null) !== null) {
+        // switched off on a term somebody terminated is still cancelled. A
+        // term yet to begin is read the same way, then may be suspended.
+        if ($access !== null || $this->isCancelled($row, $mapping) || $this->notYetBegun($row, $mapping)) {
             $status = $this->termStatus($row, $mapping, $end, $access);
 
-            if (in_array($status, ['active', 'grace'], true)
+            if (in_array($status, ['active', 'grace', 'future'], true)
                 && $applier->isConfigured()
                 && $applier->grantsAccess($client->externalId) === false) {
                 return 'suspended';

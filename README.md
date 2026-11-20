@@ -278,8 +278,14 @@ optional keys describe such a product:
 'grace'     => 'grace_ends_at',       // free access after the end
 'deadline'  => 'license_expires_at',  // payment deadline, caps end and grace
 'cancelled' => 'revoked_at',          // set once the term was terminated
-'where'     => ['deleted_at' => null],
+'where'     => ['deleted_at' => null, 'revoked_at' => null],
 ```
+
+Under `pick => current`, a cycle reported that has not begun is `future`: the
+client holds a term but may not work until it starts, which School Monitor
+calls scheduled. It is `suspended` instead where the product suspended it
+itself (a `blocks` column on the licence mapping). `future` needs a NugsoftOS
+that accepts it.
 
 With `grace` or `deadline` named, the push says when access really ends and
 why, alongside the paid term it always sent:
@@ -289,16 +295,16 @@ why, alongside the paid term it always sent:
 | `end_date` | the paid term, unchanged |
 | `grace_ends_at` | the grace column, or null |
 | `payment_deadline` | the deadline column, or null |
-| `effective_end_date` | the deadline if it comes first, otherwise the later of end and grace |
-| `ends_because` | `term`, `grace` or `payment_deadline` |
+| `effective_end_date` | the earliest of the cancellation and the deadline, otherwise the later of end and grace |
+| `ends_because` | `term`, `grace`, `payment_deadline` or `cancelled` |
 
 A deadline only ever shortens access. One that has passed while the paid term
 still runs is reported as `suspended`, not `expired`: the time was bought and is
 being withheld for want of payment, which School Monitor calls overdue. One
 that cuts grace short is `expired`, because grace was never bought.
 
-With `grace` or `deadline` named, the dates decide the status (`active`,
-`grace`, `suspended` or `expired`) and your status column no longer does, with
+With `grace` or `deadline` named, the dates decide the status (`future`,
+`active`, `grace`, `suspended` or `expired`) and your status column no longer does, with
 one exception: where it says `cancelled`, directly or through `status_map`,
 that is reported. No date can tell a cancellation.
 
@@ -311,7 +317,13 @@ such a row is reported as `cancelled`, but only where nothing newer stands:
   cancellation, if it came on or after the live cycle ran out (grace
   included), or else that cycle, as `expired`.
 
-Keep that column out of `where`, or the terminated rows are never seen at all.
+A cancelled cycle's access ends on the day it was cancelled, where that comes
+first: `effective_end_date` is that day and `ends_because` is `cancelled`.
+
+Naming the column also lifts it out of `where`. Keep it filtered there anyway
+wherever the mapping reaches an install on an older extractor, as NugsoftOS's
+served mapping does: those go on dropping terminated rows, rather than
+reporting one as the live term.
 
 ### Licences (optional)
 
@@ -412,8 +424,10 @@ from holding the client at "no access" for good; where every row's term is over
 the read-back answers "no idea", and the dates say expired. `term_starts` does
 the same for a renewal bought in advance: a deadline or a suspension on a cycle
 that has not begun does not hold back the one running today. Where nothing has
-begun yet, the next cycle to begin is asked, which is the row `pick => current`
-reports.
+begun yet the read-back answers "no idea", and the push says `future`, unless
+the next cycle to begin carries a `blocks` suspension. A ceiling on it is not
+read: NugsoftOS's revoke caps waiting cycles too, and School Monitor calls such
+a branch scheduled, not overdue.
 
 Set `RETENTION_LICENCE_SECRET` to the value issued with your API key. Without
 it nothing is received — an endpoint that switches clients off must not take

@@ -142,7 +142,18 @@ class LicenceApplier
 
         $today = now()->startOfDay();
 
-        $rows = $this->alreadyStarted($this->stillRunning($rows, $today), $today);
+        $running = $this->stillRunning($rows, $today);
+        $rows = $this->alreadyStarted($running, $today);
+
+        // Nothing has begun yet, which only `term_starts` can tell. The product
+        // lets nobody in on a term still to come, and the dates already say
+        // so: the push reports it as future. Only a suspension the product
+        // made itself is news. A ceiling is not — School Monitor ranks a
+        // cycle still to come above an overdue one, and NugsoftOS's revoke
+        // lands on every cycle, waiting ones included.
+        if ($running->isNotEmpty() && $rows->isEmpty()) {
+            return $this->anyBlocked($this->nextToBegin($running)) ? false : null;
+        }
 
         // Every term behind the client has run out. Nothing here is holding
         // them back or letting them in, so there is nothing to report — the
@@ -216,7 +227,7 @@ class LicenceApplier
 
     /**
      * Only the rows whose own term has begun, where the mapping says how to
-     * tell — or, where none has, those that begin first.
+     * tell. Empty where none has.
      *
      * The same rule the subscription push follows with `pick => current`, and
      * it has to be: a renewal bought in advance is a row that is still running
@@ -234,34 +245,48 @@ class LicenceApplier
      */
     private function alreadyStarted(Collection $rows, Carbon $today): Collection
     {
-        $columns = array_values(array_filter((array) ($this->config['term_starts'] ?? []), 'filled'));
-
-        if ($columns === [] || $rows->isEmpty()) {
+        if ($this->startColumns() === []) {
             return $rows;
         }
-
-        $startOf = function (object $row) use ($columns): ?string {
-            $starts = array_filter(array_map(fn (string $column): mixed => $row->{$column} ?? null, $columns), 'filled');
-
-            return $starts === []
-                ? null
-                : collect($starts)->map(fn (mixed $start): string => Carbon::parse((string) $start)->toDateString())->min();
-        };
 
         $day = $today->toDateString();
 
         // A row that says nothing about its start is not one to rule out.
-        $started = $rows->filter(fn (object $row): bool => ($startOf($row) ?? $day) <= $day)->values();
+        return $rows->filter(fn (object $row): bool => ($this->startOf($row) ?? $day) <= $day)->values();
+    }
 
-        if ($started->isNotEmpty()) {
-            return $started;
-        }
+    /**
+     * The rows that begin first: the cycle the product would call current
+     * where none has begun.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     * @return Collection<int, \stdClass>
+     */
+    private function nextToBegin(Collection $rows): Collection
+    {
+        $next = $rows->map(fn (object $row): ?string => $this->startOf($row))->min();
 
-        // Nothing has begun yet: the next cycle to begin is the one the
-        // product would call current, so it is the one asked.
-        $next = $rows->map($startOf)->min();
+        return $rows->filter(fn (object $row): bool => $this->startOf($row) === $next)->values();
+    }
 
-        return $rows->filter(fn (object $row): bool => $startOf($row) === $next)->values();
+    /**
+     * When a row's term begins: the earliest of its `term_starts` columns.
+     */
+    private function startOf(object $row): ?string
+    {
+        $starts = array_filter(array_map(fn (string $column): mixed => $row->{$column} ?? null, $this->startColumns()), 'filled');
+
+        return $starts === []
+            ? null
+            : collect($starts)->map(fn (mixed $start): string => Carbon::parse((string) $start)->toDateString())->min();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function startColumns(): array
+    {
+        return array_values(array_filter((array) ($this->config['term_starts'] ?? []), 'filled'));
     }
 
     /**

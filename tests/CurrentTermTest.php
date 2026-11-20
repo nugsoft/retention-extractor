@@ -28,7 +28,9 @@ function withCycleSubscription(array $overrides = []): void
         'grace' => 'grace_ends_at',
         'deadline' => 'license_expires_at',
         'cancelled' => 'revoked_at',
-        'where' => ['deleted_at' => null],
+        // As NugsoftOS serves it: filtered too, so an extractor too old to
+        // know `cancelled` drops those rows. This one lifts the filter.
+        'where' => ['deleted_at' => null, 'revoked_at' => null],
         ...$overrides,
     ]);
 }
@@ -109,7 +111,37 @@ describe('which cycle is the term', function (): void {
         cycle($this->branch, day(400), day(765));
         cycle($this->branch, day(10), day(375));
 
-        expect(termReported()['start_date'])->toBe(day(10));
+        expect(termReported())
+            ->start_date->toBe(day(10))
+            ->status->toBe('future');
+    });
+
+    it('calls a cycle yet to begin future even with a deadline NugsoftOS wrote on it', function (): void {
+        // A revoke caps every cycle, waiting ones included. School Monitor
+        // still calls the branch scheduled, not overdue.
+        withCycleSubscription();
+        withCycleLicence();
+
+        cycle($this->branch, day(10), day(375), ['license_expires_at' => day(-1)]);
+
+        expect(termReported()['status'])->toBe('future');
+    });
+
+    it('calls a cycle yet to begin suspended where the product suspended it', function (): void {
+        withCycleSubscription();
+        withCycleLicence();
+
+        cycle($this->branch, day(10), day(375), ['suspended_at' => now()]);
+
+        expect(termReported()['status'])->toBe('suspended');
+    });
+
+    it('never calls a term future for a product with one row per term', function (): void {
+        withCycleSubscription(['pick' => null, 'grace' => null, 'deadline' => null]);
+
+        cycle($this->branch, day(10), day(375));
+
+        expect(termReported()['status'])->toBe('active');
     });
 
     it('gives a tie between cycles yet to begin to the newest row', function (): void {
@@ -139,7 +171,23 @@ describe('which cycle is the term', function (): void {
 
         expect(termReported())
             ->status->toBe('cancelled')
-            ->end_date->toBe(day(265));
+            ->end_date->toBe(day(265))
+            ->effective_end_date->toBe(day(-5))
+            ->ends_because->toBe('cancelled');
+    });
+
+    it('keeps a payment deadline that ended access before the cancellation', function (): void {
+        withCycleSubscription();
+
+        cycle($this->branch, day(-100), day(265), [
+            'license_expires_at' => day(-20),
+            'revoked_at' => now()->subDays(5),
+        ]);
+
+        expect(termReported())
+            ->status->toBe('cancelled')
+            ->effective_end_date->toBe(day(-20))
+            ->ends_because->toBe('payment_deadline');
     });
 
     it('reports a cancellation without grace or a deadline mapped', function (): void {
@@ -381,13 +429,31 @@ describe('reading back a product that keeps a cycle per row', function (): void 
         expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeTrue();
     });
 
-    it('asks the next cycle to begin when none has begun', function (): void {
+    it('answers no idea when no cycle has begun, whatever ceiling it carries', function (): void {
         DB::table('branch_licences')->where('id', $this->current)->delete();
 
         cycle($this->branch, day(10), day(375), ['license_expires_at' => day(-1)]);
         cycle($this->branch, day(376), day(740));
 
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeNull();
+    });
+
+    it('says no when the product suspended the next cycle to begin', function (): void {
+        DB::table('branch_licences')->where('id', $this->current)->delete();
+
+        cycle($this->branch, day(10), day(375), ['suspended_at' => now()]);
+        cycle($this->branch, day(376), day(740));
+
         expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeFalse();
+    });
+
+    it('looks only at the next cycle to begin for a suspension', function (): void {
+        DB::table('branch_licences')->where('id', $this->current)->delete();
+
+        cycle($this->branch, day(10), day(375));
+        cycle($this->branch, day(376), day(740), ['suspended_at' => now()]);
+
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeNull();
     });
 
     it('still asks every running cycle when the mapping does not say when they begin', function (): void {
