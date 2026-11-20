@@ -118,6 +118,24 @@ return [
         'scope' => null,
 
         /*
+        | Optional: a column on the client's own row that, once set, means the
+        | product has closed this client for good — deleted, struck off. A
+        | model that soft-deletes leaves such a client out of everything above
+        | by itself, so it would simply stop being reported, and NugsoftOS
+        | would go on granting its licence and scoring it as going dormant.
+        |
+        | Named, a closed client's term is reported once more, as cancelled:
+        | access ends on the day it closed, unless the term had run out first.
+        | No activity is sent for it, and only a client NugsoftOS has licensed
+        | here is reported — one it never knew would arrive as a lost client.
+        | School Monitor soft-deletes a closed branch and nothing restores it:
+        |
+        |     'ended' => 'deleted_at',
+        */
+
+        'ended' => null,
+
+        /*
         |----------------------------------------------------------------------
         | Branches beneath each client
         |----------------------------------------------------------------------

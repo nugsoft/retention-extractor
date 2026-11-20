@@ -7,6 +7,7 @@ namespace Nugsoft\RetentionExtractor\Extraction;
 use Generator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
@@ -51,6 +52,42 @@ class ClientResolver
     public function count(): int
     {
         return $this->isMultiTenant() ? $this->query()->count() : 1;
+    }
+
+    /**
+     * Clients the product has ended for good, with the day it did.
+     *
+     * `ended` names a column on the client's own row that, once set, means
+     * the client is gone: School Monitor soft-deletes a closed branch, and
+     * nothing restores one. Such a client is left out of `all()` — a model
+     * that soft-deletes leaves it out by itself — so it simply stopped being
+     * reported, and NugsoftOS went on granting a licence nobody could use and
+     * scoring a client that no longer existed as going dormant. Listed here
+     * instead, so its term can be reported once more, as ended.
+     *
+     * Soft deletes are lifted for this query alone; the configured `scope`
+     * still applies.
+     *
+     * @return Generator<int, array{client: ClientRecord, endedOn: string}>
+     */
+    public function ended(int $chunkSize = 200): Generator
+    {
+        $column = $this->config['ended'] ?? null;
+
+        if (! $this->isMultiTenant() || blank($column)) {
+            return;
+        }
+
+        $query = $this->query()->withoutGlobalScope(SoftDeletingScope::class);
+
+        $query->whereNotNull($query->getModel()->qualifyColumn((string) $column));
+
+        foreach ($query->lazyById($chunkSize) as $model) {
+            yield [
+                'client' => $this->fromModel($model),
+                'endedOn' => substr((string) $model->getRawOriginal((string) $column), 0, 10),
+            ];
+        }
     }
 
     /**

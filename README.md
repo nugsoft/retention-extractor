@@ -132,8 +132,19 @@ choose.
     'contact_phone' => 'phone',
     'contact_email' => 'email',
     'scope' => fn ($query) => $query->where('is_active', true),   // optional
+    'ended' => 'deleted_at',                                      // optional
 ],
 ```
+
+`ended` names a column on the client's own row that, once set, means the
+product has closed the client for good. A model that soft-deletes would
+otherwise just stop reporting it, and NugsoftOS would go on granting its
+licence and reading it as going dormant. Named, a closed client's term is
+reported once more as `cancelled`: access ends on the day it closed, unless the
+term ran out first. It sends no activity, and only a client NugsoftOS has
+licensed here is reported, because one it never knew would arrive there as a
+lost client. School Monitor soft-deletes a branch it closes, and nothing
+restores it.
 
 **Single-tenant** — one install per business. Leave `model` as `null` and set:
 

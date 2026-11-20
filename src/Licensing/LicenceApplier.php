@@ -8,6 +8,7 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Nugsoft\RetentionExtractor\Events\LicenceApplied;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
@@ -373,6 +374,26 @@ class LicenceApplier
      * The pull always wins, because it asks for the current state rather than
      * carrying one; only a pushed webhook can arrive out of order.
      */
+    /**
+     * Whether NugsoftOS has ever delivered a licence for this client here.
+     *
+     * Every licence applied is remembered, and the hourly pull applies every
+     * licence NugsoftOS holds, so this is the list of clients it knows. An
+     * ended client is reported only if it is on it: reporting one NugsoftOS
+     * has never heard of would create a licence there, already cancelled, and
+     * count it as a client lost.
+     */
+    public function hasLicensed(string $externalId): bool
+    {
+        if (! Schema::hasTable('retention_licences')) {
+            return false;
+        }
+
+        return DB::table('retention_licences')
+            ->where('external_id', mb_strtolower($externalId))
+            ->exists();
+    }
+
     public function isStale(LicenceState $licence): bool
     {
         $applied = DB::table('retention_licences')

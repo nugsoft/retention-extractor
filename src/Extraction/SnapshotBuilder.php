@@ -113,6 +113,35 @@ class SnapshotBuilder
     }
 
     /**
+     * The terms of a client the product has ended, reported as what they now
+     * are: cancelled.
+     *
+     * Read exactly as a live client's would be, then told the one thing the
+     * term rows do not know — that the client itself is gone. Access ends on
+     * the day it was, where that comes first, as it does for a cancelled
+     * cycle; a term that had already run out keeps the day and the reason it
+     * ran out. School Monitor deletes a closed branch and nothing restores
+     * one, so it is a cancellation, not a suspension.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function endedSubscriptionPayloads(ClientRecord $client, string $endedOn): array
+    {
+        return array_map(function (array $payload) use ($endedOn): array {
+            $accessEnds = (string) ($payload['effective_end_date'] ?? $payload['end_date']);
+
+            $cancelledFirst = $endedOn <= $accessEnds;
+
+            return [
+                ...$payload,
+                'status' => 'cancelled',
+                'effective_end_date' => $cancelledFirst ? $endedOn : $accessEnds,
+                'ends_because' => $cancelledFirst ? 'cancelled' : ($payload['ends_because'] ?? 'term'),
+            ];
+        }, $this->subscriptionPayloads($client));
+    }
+
+    /**
      * One branch's own term: the row that ends last among those naming it.
      *
      * The branch's key is its primary key here, so nothing else is needed to
