@@ -147,9 +147,7 @@ class SnapshotBuilder
         $end = substr((string) $end, 0, 10);
         $access = $this->resolvedAccess($row, $mapping, $end);
 
-        $status = $access === null
-            ? $this->mapStatus($row->{$mapping['status'] ?? 'status'} ?? null, $mapping, $end)
-            : $this->resolvedStatus($access, $end);
+        $status = $this->termStatus($row, $mapping, $end, $access);
 
         // Switched off with time still on the term is a suspension. Off with
         // the term run out is simply expired, whoever flipped the switch —
@@ -269,8 +267,11 @@ class SnapshotBuilder
 
         $upcoming = (clone $query)->whereDate($start, '>', $today)->orderBy($start);
 
+        // The earliest start still wins; only a tie on it goes to the newest
+        // row, as it does for the started ones. A renewal re-issued for the
+        // same day leaves the replaced row behind with its old dates.
         if ($key !== null) {
-            $upcoming->orderBy($key);
+            $upcoming->orderByDesc($key);
         }
 
         return $started->first() ?? $upcoming->first();
@@ -334,6 +335,10 @@ class SnapshotBuilder
      * suspended — and reporting it as expired would say the term had run out
      * when it plainly has not.
      *
+     * Only the paid term counts here, not grace. Grace is free time, not time
+     * bought, so a deadline that cuts it short withholds nothing: the term has
+     * run out and the client is expired.
+     *
      * @param  array{grace_ends_at: string|null, payment_deadline: string|null, effective_end_date: string, ends_because: string}  $access
      */
     private function resolvedStatus(array $access, string $end): string
@@ -344,11 +349,33 @@ class SnapshotBuilder
             return $end >= $today ? 'active' : 'grace';
         }
 
-        $natural = max($end, $access['grace_ends_at'] ?? $end);
-
-        return $access['ends_because'] === 'payment_deadline' && $natural >= $today
+        return $access['ends_because'] === 'payment_deadline' && $end >= $today
             ? 'suspended'
             : 'expired';
+    }
+
+    /**
+     * The status the term row describes, before any licence is read back.
+     *
+     * Where the dates were resolved they decide it, because they are why the
+     * mapping named grace or a deadline in the first place. The one word they
+     * cannot tell is `cancelled`: a subscription is only cancelled by somebody
+     * saying so, so where the product's own column says it, that stands.
+     *
+     * @param  array<string, mixed>  $mapping
+     * @param  array{grace_ends_at: string|null, payment_deadline: string|null, effective_end_date: string, ends_because: string}|null  $access
+     */
+    private function termStatus(object $row, array $mapping, string $end, ?array $access): string
+    {
+        $said = $row->{$mapping['status'] ?? 'status'} ?? null;
+
+        if ($access === null) {
+            return $this->mapStatus($said, $mapping, $end);
+        }
+
+        return $this->explicitStatus($said, $mapping) === 'cancelled'
+            ? 'cancelled'
+            : $this->resolvedStatus($access, $end);
     }
 
     private function dateOn(object $row, mixed $column): ?string
@@ -367,13 +394,12 @@ class SnapshotBuilder
      *
      * `via` is a column on the subscription table, or the two-step path used
      * everywhere else in this config for a table that only knows something
-     * beneath the client. School Monitor bills per branch: a subscription row
-     * names its branch and the branch names the school, so there is no column
-     * here that reaches a client directly.
+     * beneath the client. School Monitor needs only the column: each branch is
+     * a client there, and a subscription row names its branch.
      *
      * An optional fourth element narrows that middle table, as it does for the
      * metrics: `['deleted_at' => null]` keeps a closed branch's term from being
-     * reported as the school's.
+     * reported as its client's.
      *
      * @param  array<string, array<int, mixed>>|string  $via
      */
@@ -438,7 +464,7 @@ class SnapshotBuilder
         $applier = app(LicenceApplier::class);
 
         if ($access !== null) {
-            $status = $this->resolvedStatus($access, $end);
+            $status = $this->termStatus($row, $mapping, $end, $access);
 
             if (in_array($status, ['active', 'grace'], true)
                 && $applier->isConfigured()
@@ -490,6 +516,21 @@ class SnapshotBuilder
      */
     private function mapStatus(mixed $status, array $mapping, string $endDate): string
     {
+        // Nothing recognisable to go on. A subscription is only cancelled by
+        // somebody saying so, which is why that is never inferred here — the
+        // date can distinguish live from lapsed and nothing else.
+        return $this->explicitStatus($status, $mapping)
+            ?? (Carbon::parse($endDate)->endOfDay()->isPast() ? 'expired' : 'active');
+    }
+
+    /**
+     * What the product's own column says, in NugsoftOS's words — or null
+     * where it says nothing recognisable.
+     *
+     * @param  array<string, mixed>  $mapping
+     */
+    private function explicitStatus(mixed $status, array $mapping): ?string
+    {
         $status = is_string($status) ? strtolower(trim($status)) : '';
 
         $map = $mapping['status_map'] ?? [];
@@ -498,13 +539,6 @@ class SnapshotBuilder
             return $map[$status];
         }
 
-        if (in_array($status, ['active', 'expired', 'cancelled'], true)) {
-            return $status;
-        }
-
-        // Nothing recognisable to go on. A subscription is only cancelled by
-        // somebody saying so, which is why that is never inferred here — the
-        // date can distinguish live from lapsed and nothing else.
-        return Carbon::parse($endDate)->endOfDay()->isPast() ? 'expired' : 'active';
+        return in_array($status, ['active', 'expired', 'cancelled'], true) ? $status : null;
     }
 }

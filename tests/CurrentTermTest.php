@@ -32,7 +32,7 @@ function withCycleSubscription(array $overrides = []): void
     ]);
 }
 
-function withCycleLicence(): void
+function withCycleLicence(array $overrides = []): void
 {
     config()->set('retention-extractor.licence', [
         'table' => 'branch_licences',
@@ -42,9 +42,11 @@ function withCycleLicence(): void
         'ceiling' => ['column' => 'license_expires_at'],
         'blocks' => ['suspended_at'],
         'term_ends' => ['end_date', 'grace_ends_at'],
+        'term_starts' => ['start_date'],
         'where' => ['deleted_at' => null, 'revoked_at' => null],
         'secret' => 'a-signing-key',
         'route' => 'api/retention/licence',
+        ...$overrides,
     ]);
 }
 
@@ -107,6 +109,16 @@ describe('which cycle is the term', function (): void {
         cycle($this->branch, day(10), day(375));
 
         expect(termReported()['start_date'])->toBe(day(10));
+    });
+
+    it('gives a tie between cycles yet to begin to the newest row', function (): void {
+        withCycleSubscription();
+
+        // Re-issued for the same day: the first is the one it replaced.
+        cycle($this->branch, day(10), day(375));
+        cycle($this->branch, day(10), day(380));
+
+        expect(termReported()['end_date'])->toBe(day(380));
     });
 
     it('passes over a revoked cycle, however long it runs', function (): void {
@@ -173,6 +185,45 @@ describe('when access really ends, and why', function (): void {
         expect(termReported())
             ->status->toBe('suspended')
             ->ends_because->toBe('payment_deadline');
+    });
+
+    it('calls a deadline that cuts grace short expired, not suspended', function (): void {
+        // Grace is free time. Ending it early withholds nothing bought.
+        cycle($this->branch, day(-365), day(-5), [
+            'grace_ends_at' => day(10),
+            'license_expires_at' => day(-1),
+        ]);
+
+        expect(termReported())
+            ->status->toBe('expired')
+            ->ends_because->toBe('payment_deadline');
+    });
+
+    it('still reports a cancellation the product recorded', function (): void {
+        withCycleSubscription(['status_map' => ['void' => 'cancelled']]);
+
+        cycle($this->branch, day(-100), day(30), ['status' => 'void']);
+
+        expect(termReported())
+            ->status->toBe('cancelled')
+            ->effective_end_date->toBe(day(30));
+    });
+
+    it('lets the dates overrule any other word in the status column', function (): void {
+        cycle($this->branch, day(-100), day(200), ['status' => 'active', 'license_expires_at' => day(-3)]);
+
+        expect(termReported()['status'])->toBe('suspended');
+    });
+
+    it('reports a branch\'s own cancellation too', function (): void {
+        withBranches();
+        withCycleSubscription(['branch' => 'business_branch_id']);
+
+        cycle($this->branch, day(-100), day(30), ['status' => 'cancelled']);
+
+        $client = iterator_to_array(app(ClientResolver::class)->all())[0];
+
+        expect(app(SnapshotBuilder::class)->subscriptionPayloads($client)[0]['status'])->toBe('cancelled');
     });
 
     it('calls a term that has run out expired, whatever deadline it carried', function (): void {
@@ -254,5 +305,42 @@ describe('reading back a product that keeps a cycle per row', function (): void 
         DB::table('branch_licences')->where('id', $this->current)->update(['end_date' => day(-5)]);
 
         expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeNull();
+    });
+
+    it('is not held back by a deadline on a renewal that has not begun', function (): void {
+        cycle($this->branch, day(201), day(566), ['license_expires_at' => day(-1)]);
+
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeTrue();
+    });
+
+    it('is not held back by a suspension stamped on a renewal that has not begun', function (): void {
+        cycle($this->branch, day(201), day(566), ['suspended_at' => now()]);
+
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeTrue();
+    });
+
+    it('asks the next cycle to begin when none has begun', function (): void {
+        DB::table('branch_licences')->where('id', $this->current)->delete();
+
+        cycle($this->branch, day(10), day(375), ['license_expires_at' => day(-1)]);
+        cycle($this->branch, day(376), day(740));
+
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeFalse();
+    });
+
+    it('still asks every running cycle when the mapping does not say when they begin', function (): void {
+        withCycleLicence(['term_starts' => null]);
+
+        cycle($this->branch, day(201), day(566), ['license_expires_at' => day(-1)]);
+
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeFalse();
+    });
+
+    it('pushes the cycle running today as active while a renewal carries a passed deadline', function (): void {
+        withCycleSubscription();
+
+        cycle($this->branch, day(201), day(566), ['license_expires_at' => day(-1)]);
+
+        expect(termReported()['status'])->toBe('active');
     });
 });

@@ -265,18 +265,21 @@ return [
     | Subscriptions (optional)
     |--------------------------------------------------------------------------
     |
-    | Leave null and no subscription data is pushed. `status_map` translates
-    | your product's wording into NugsoftOS's: active, expired, cancelled.
+    | Leave null and no subscription data is pushed. NugsoftOS knows five
+    | statuses: active, grace, expired, suspended and cancelled. `status_map`
+    | translates your product's wording into those. Name `grace` or `deadline`
+    | below and the dates decide the status instead; your status column then
+    | counts only where it says cancelled, which no date can tell.
     |
     | The row reported is whichever ends last, so two keys matter where a
     | product keeps more than one:
     |
     |   'via'    a column on the subscription table, or the same two-step path
     |            the metrics use where the table only knows something beneath
-    |            the client. School Monitor bills per branch, and a branch row
-    |            is what names the school:
+    |            the client. School Monitor needs only the column: each branch
+    |            is a client there, and a subscription row names its branch:
     |
-    |                'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    |                'via' => 'school_branch_id',
     |
     |   'where'  drops rows the product would not read itself. This query does
     |            not go through your models, so a soft-deleted future term
@@ -308,13 +311,17 @@ return [
     |              With either, the push also says when access really ends and
     |              why: `effective_end_date`, `ends_because` (term, grace or
     |              payment_deadline), `grace_ends_at` and `payment_deadline`.
-    |              `end_date` stays the paid term. A deadline that has passed
-    |              while the term still runs is reported as suspended, not
+    |              `end_date` stays the paid term. The status comes from these
+    |              dates: active, grace, suspended or expired, or cancelled
+    |              where your status column says so. A deadline that has
+    |              passed while the paid term still runs is suspended, not
     |              expired — the time was bought, and it is being withheld.
+    |              One that cuts grace short is expired: grace was not bought.
     |
     | School Monitor, whose renewals are new rows and whose revoked cycles are
     | permanent:
     |
+    |       'via'      => 'school_branch_id',
     |       'pick'     => 'current',
     |       'grace'    => 'grace_ends_at',
     |       'deadline' => 'license_expires_at',
@@ -360,9 +367,16 @@ return [
     |       'ceiling' => ['column' => 'license_expires_at'],
     |
     | The ceiling is set to yesterday to revoke and cleared to grant, so the
-    | product's own paid term governs again. That is deliberate: a mistake here
-    | can only ever shorten access, never hand somebody time they have not paid
-    | for.
+    | product's own paid term governs again. That is deliberate: nothing here
+    | can give access beyond the paid term and its grace.
+    |
+    | A grant clears the ceiling whoever set it, and that is intended too. In
+    | School Monitor the column is also Finance's payment deadline, and every
+    | pull re-applies each granted licence, not only those that changed — so a
+    | deadline set on a branch NugsoftOS grants lasts until the next pull.
+    | NugsoftOS is the master for whether a branch may work: to keep an
+    | overdue branch out, switch it off there, or suspend it in School Monitor
+    | (`suspended_at`, which this package reads and never writes).
     |
     | A licence covers the whole client. Where the rows are per branch, every
     | branch of that client is written — a client is either on or off, never
@@ -377,8 +391,8 @@ return [
     |
     |       'where' => ['deleted_at' => null],
     |
-    | Two more are read back and never written, for a product that keeps more
-    | than one fact about access:
+    | Three more are read back and never written, for a product that keeps
+    | more than one fact about access:
     |
     |   'blocks'    columns any of which, set on any row, means the client may
     |               not work — a suspension the product keeps for itself.
@@ -388,6 +402,13 @@ return [
     |               Rows already past it are not asked, so a ceiling left on a
     |               cycle that ended last year cannot hold the client at "no
     |               access". School Monitor: ['end_date', 'grace_ends_at'].
+    |
+    |   'term_starts' columns whose earliest value is when a row's own term
+    |               begins. Rows not yet begun are not asked, or, where none
+    |               has begun, only the next to begin — so a renewal bought
+    |               in advance cannot hold the cycle running today at "no
+    |               access". The same rule as the subscription `pick =>
+    |               current`. School Monitor: ['start_date'].
     |
     */
 

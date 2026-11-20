@@ -179,6 +179,10 @@ abstract class TestCase extends Orchestra
             $table->timestamp('suspended_at')->nullable();
             $table->timestamp('revoked_at')->nullable();
 
+            // Not School Monitor's: a word some products keep beside the
+            // dates, which must still be heard where it says cancelled.
+            $table->string('status')->nullable();
+
             // School Monitor soft-deletes these, and this package queries them
             // without a model, so it sees rows the product itself never reads.
             $table->softDeletes();
