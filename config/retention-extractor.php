@@ -318,10 +318,13 @@ return [
     |              `payment_deadline`. `end_date` stays the paid term. The
     |              status comes from these dates: active, grace, suspended or
     |              expired, or future, or cancelled where `cancelled` below or
-    |              your status column says so. A deadline that has passed
-    |              while the paid term still runs is suspended, not expired —
-    |              the time was bought, and it is being withheld. One that
-    |              cuts grace short is expired: grace was not bought.
+    |              your status column says so. A payment deadline falls
+    |              within the paid term. One that has passed while the paid
+    |              term still runs is suspended, not expired — the time was
+    |              bought, and it is being withheld. Once the paid term is
+    |              over the client is expired, deadline or not. On a cycle yet
+    |              to begin, a date before its start is NugsoftOS's revoke,
+    |              not a deadline, and is left out.
     |
     |   'cancelled' a column that, once set, means the term was terminated.
     |              Such a row is reported as cancelled, but only where nothing
@@ -377,9 +380,8 @@ return [
     |       'status' => ['column' => 'status', 'granted' => 'Active', 'revoked' => 'Suspend'],
     |
     |   'ceiling'  a date that caps access. School Monitor has no status at
-    |              all — access is derived from dates, and `license_expires_at`
-    |              (its payment deadline, which its own Finance staff set too)
-    |              caps them:
+    |              all — access is derived from dates, and `license_expires_at`,
+    |              its payment deadline, caps them:
     |
     |       'table'   => 'branch_subscriptions',
     |       'via'     => 'school_branch_id',
@@ -389,13 +391,18 @@ return [
     | product's own paid term governs again. That is deliberate: nothing here
     | can give access beyond the paid term and its grace.
     |
-    | A grant clears the ceiling whoever set it, and that is intended too. In
-    | School Monitor the column is also Finance's payment deadline, and every
-    | pull re-applies each granted licence, not only those that changed — so a
-    | deadline set on a branch NugsoftOS grants lasts until the next pull.
-    | NugsoftOS is the master for whether a branch may work: to keep an
-    | overdue branch out, switch it off there, or suspend it in School Monitor
-    | (`suspended_at`, which this package reads and never writes).
+    | A grant clears the ceiling whoever set it, and that is intended too.
+    | Finance makes School Monitor's subscriptions and licences in NugsoftOS,
+    | which is the master for whether a branch may work. Every pull re-applies
+    | each granted licence, not only those that changed — so a deadline set in
+    | School Monitor's manager app on a branch NugsoftOS grants lasts until the
+    | next pull. To keep a branch out, switch it off in NugsoftOS. A suspension
+    | made in School Monitor (`suspended_at`) is read and never written.
+    |
+    | Every write fires Nugsoft\RetentionExtractor\Events\LicenceApplied. The
+    | rows change under your models, not through them, so listen for it to
+    | forget anything you cache about them — School Monitor caches a branch's
+    | access for an hour.
     |
     | A licence covers the whole client. Where the rows are per branch, every
     | branch of that client is written — a client is either on or off, never

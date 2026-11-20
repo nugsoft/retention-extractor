@@ -298,10 +298,17 @@ why, alongside the paid term it always sent:
 | `effective_end_date` | the earliest of the cancellation and the deadline, otherwise the later of end and grace |
 | `ends_because` | `term`, `grace`, `payment_deadline` or `cancelled` |
 
-A deadline only ever shortens access. One that has passed while the paid term
-still runs is reported as `suspended`, not `expired`: the time was bought and is
-being withheld for want of payment, which School Monitor calls overdue. One
-that cuts grace short is `expired`, because grace was never bought.
+A payment deadline falls within the paid term, between its start and its end,
+and only ever shortens access. One that has passed while the paid term still
+runs is reported as `suspended`, not `expired`: the time was bought and is being
+withheld for want of payment, which School Monitor calls overdue. Once the paid
+term is over the client is `expired`, deadline or not: grace is not owed to a
+client who missed the deadline.
+
+On a cycle yet to begin, a date before its start is no deadline at all — it is
+NugsoftOS's revoke, which caps waiting cycles as yesterday — so it is left out:
+`payment_deadline` is null and access ends with the term. Once the cycle has
+begun the product enforces whatever caps it, and it counts again.
 
 With `grace` or `deadline` named, the dates decide the status (`future`,
 `active`, `grace`, `suspended` or `expired`) and your status column no longer does, with
@@ -350,9 +357,8 @@ this is configuration and not code: no two products say it the same way.
 ```
 
 **A date that caps access** — School Monitor has no status at all; access is
-derived from dates, and `license_expires_at` (its payment deadline, which its
-own Finance staff set too) caps them. Each branch is a client there, and its
-cycles are rows naming it:
+derived from dates, and `license_expires_at`, its payment deadline, caps them.
+Each branch is a client there, and its cycles are rows naming it:
 
 ```php
 'licence' => [
@@ -366,13 +372,28 @@ The ceiling is set to yesterday to revoke and **cleared** to grant, so your own
 paid term governs again. That is deliberate: nothing here can give access
 beyond the paid term and its grace.
 
-**A grant clears the deadline whoever set it, and that is intended.** The column
-is shared with School Monitor's Finance staff, and the hourly pull re-applies
-every granted licence, not only those that changed. A deadline Finance sets on
-a branch NugsoftOS grants therefore lasts until the next pull. NugsoftOS is the
-master for whether a branch may work: to keep an overdue branch out, switch it
-off there, or suspend it in School Monitor (`suspended_at`, which this package
-reads through `blocks` and never writes).
+**A grant clears the deadline whoever set it, and that is intended.** Finance
+makes School Monitor's subscriptions and licences in NugsoftOS, which is the
+master for whether a branch may work. The hourly pull re-applies every granted
+licence, not only those that changed, so a deadline set in School Monitor's
+manager app on a branch NugsoftOS grants lasts until the next pull. To keep a
+branch out, switch it off in NugsoftOS. A suspension made in School Monitor
+(`suspended_at`) is read through `blocks` and never written, so NugsoftOS sees
+it as the product's own.
+
+**Every write is announced.** The rows change through the query builder, not
+your models, so nothing your models do on save runs for them — including
+forgetting a cache of what those rows say. Listen for
+`Nugsoft\RetentionExtractor\Events\LicenceApplied`, which carries the
+`LicenceState` written and how many rows took it. School Monitor caches each
+branch's access for an hour, so it forgets that branch's keys on this event:
+
+```php
+Event::listen(LicenceApplied::class, function (LicenceApplied $event): void {
+    // The client is the branch there, so its external id is the branch id.
+    BranchSubscription::forgetCachesForBranch((int) $event->licence->externalId);
+});
+```
 
 A licence covers the whole client, so where the rows are per branch every
 branch of that client is written. A client is either on or off, never half.

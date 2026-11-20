@@ -8,6 +8,7 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Nugsoft\RetentionExtractor\Events\LicenceApplied;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
 /**
@@ -38,12 +39,17 @@ use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
  * paid term and its grace.
  *
  * A grant does clear the ceiling whoever set it. In School Monitor that column
- * is also the payment deadline its own Finance staff set, and every pull
- * re-applies each granted licence, so a deadline set on a branch NugsoftOS
- * grants lasts until the next pull. That is intended: NugsoftOS is the master
+ * is also the payment deadline, and every pull re-applies each granted
+ * licence, so a deadline set in School Monitor's manager app on a branch
+ * NugsoftOS grants lasts until the next pull. That is intended: Finance makes
+ * School Monitor's subscriptions and licences in NugsoftOS, which is the master
  * for whether a client may work. A product that wants to keep somebody out on
  * its own account says so in a `blocks` column, which is read and never
  * written.
+ *
+ * Every write fires `LicenceApplied`. The rows change under the product's
+ * models rather than through them, so a product that caches what those rows
+ * say has to be told.
  */
 class LicenceApplier
 {
@@ -82,6 +88,8 @@ class LicenceApplier
 
             if ($written > 0) {
                 $this->rememberApplied($licence);
+
+                event(new LicenceApplied($licence, $written));
             }
 
             return $written;
@@ -99,6 +107,8 @@ class LicenceApplier
             ->update($this->valuesFor($licence));
 
         $this->rememberApplied($licence);
+
+        event(new LicenceApplied($licence, count($ids)));
 
         return count($ids);
     }

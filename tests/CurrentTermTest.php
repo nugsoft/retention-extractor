@@ -124,7 +124,40 @@ describe('which cycle is the term', function (): void {
 
         cycle($this->branch, day(10), day(375), ['license_expires_at' => day(-1)]);
 
-        expect(termReported()['status'])->toBe('future');
+        // Nor is the cap sent as a payment deadline: a deadline falls within
+        // the term, and this one is dated before it starts.
+        expect(termReported())
+            ->status->toBe('future')
+            ->payment_deadline->toBeNull()
+            ->effective_end_date->toBe(day(375))
+            ->ends_because->toBe('term');
+    });
+
+    it('still reports a payment deadline that falls within a cycle yet to begin', function (): void {
+        withCycleSubscription();
+        withCycleLicence();
+
+        cycle($this->branch, day(10), day(375), ['license_expires_at' => day(40)]);
+
+        expect(termReported())
+            ->status->toBe('future')
+            ->payment_deadline->toBe(day(40))
+            ->effective_end_date->toBe(day(40))
+            ->ends_because->toBe('payment_deadline');
+    });
+
+    it('counts a cap dated before the cycle once the cycle has begun', function (): void {
+        // The cycle started today under a revoke written yesterday. School
+        // Monitor enforces it from the first minute, so the push says so.
+        withCycleSubscription();
+        withCycleLicence();
+
+        cycle($this->branch, day(0), day(365), ['license_expires_at' => day(-1)]);
+
+        expect(termReported())
+            ->status->toBe('suspended')
+            ->payment_deadline->toBe(day(-1))
+            ->ends_because->toBe('payment_deadline');
     });
 
     it('calls a cycle yet to begin suspended where the product suspended it', function (): void {

@@ -367,6 +367,14 @@ class SnapshotBuilder
      * first: School Monitor's `revoked_at` ends a cycle there and then, so the
      * dates the row was sold with no longer say when access stopped.
      *
+     * A payment deadline falls within the term, between its start and its
+     * end. On a cycle yet to begin, a date before its start is therefore no
+     * deadline at all: it is NugsoftOS's revoke, which caps waiting cycles
+     * as yesterday. It is left out, as the licence read-back leaves it out,
+     * rather than sent as a payment deadline on a term that has not started
+     * and an access end before its first day. Once the cycle has begun the
+     * product enforces whatever caps it, so it counts again.
+     *
      * Null when neither grace nor a deadline is mapped, so a product that
      * never named them sends exactly what it sent before.
      *
@@ -384,6 +392,11 @@ class SnapshotBuilder
 
         $grace = $this->dateOn($row, $graceColumn);
         $deadline = $this->dateOn($row, $deadlineColumn);
+        $start = $this->dateOn($row, $mapping['start'] ?? 'starts_at');
+
+        if ($deadline !== null && $start !== null && $deadline < $start && $this->notYetBegun($row, $mapping)) {
+            $deadline = null;
+        }
 
         $effective = $end;
         $because = 'term';
