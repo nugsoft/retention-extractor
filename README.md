@@ -237,10 +237,11 @@ about wherever a product keeps more than one.
 
 `via` is a column on the subscription table, or the same two-step path the
 metrics use where the table only knows something beneath the client. School
-Monitor bills per branch, and nothing on a subscription row names a school:
+Monitor needs only the column: each branch is a client there, and a
+subscription row names its branch:
 
 ```php
-'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+'via' => 'school_branch_id',
 ```
 
 `where` drops rows your product would not read itself. **This matters more than
@@ -260,8 +261,57 @@ soft-deletes, give the path the same fourth element the metrics take, and a
 closed branch's term is left out too. The licence path accepts it as well:
 
 ```php
-'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id', ['deleted_at' => null]]],
+'via' => ['branch_id' => ['branches', 'id', 'client_id', ['deleted_at' => null]]],
 ```
+
+#### A row per cycle
+
+Some products add a row for every cycle rather than editing one row per term:
+School Monitor renews by inserting rows, keeps every cycle it ever sold, and
+marks a terminated cycle with `revoked_at`. "Whichever ends last" is then wrong
+— a renewal bought in advance ends later than the cycle running today. Four
+optional keys describe such a product:
+
+```php
+'via'       => 'school_branch_id',    // each branch is a client
+'pick'      => 'current',             // started and ends last, else the next to begin
+'grace'     => 'grace_ends_at',       // free access after the end
+'deadline'  => 'license_expires_at',  // payment deadline, caps end and grace
+'cancelled' => 'revoked_at',          // set once the term was terminated
+'where'     => ['deleted_at' => null],
+```
+
+With `grace` or `deadline` named, the push says when access really ends and
+why, alongside the paid term it always sent:
+
+| Field | |
+|---|---|
+| `end_date` | the paid term, unchanged |
+| `grace_ends_at` | the grace column, or null |
+| `payment_deadline` | the deadline column, or null |
+| `effective_end_date` | the deadline if it comes first, otherwise the later of end and grace |
+| `ends_because` | `term`, `grace` or `payment_deadline` |
+
+A deadline only ever shortens access. One that has passed while the paid term
+still runs is reported as `suspended`, not `expired`: the time was bought and is
+being withheld for want of payment, which School Monitor calls overdue. One
+that cuts grace short is `expired`, because grace was never bought.
+
+With `grace` or `deadline` named, the dates decide the status (`active`,
+`grace`, `suspended` or `expired`) and your status column no longer does, with
+one exception: where it says `cancelled`, directly or through `status_map`,
+that is reported. No date can tell a cancellation.
+
+`cancelled` names a column that, once set, means the term was terminated, and
+such a row is reported as `cancelled`, but only where nothing newer stands:
+
+- A cycle nobody cancelled that is still running, or yet to begin, is reported
+  first. An old cycle terminated long ago does not hide the one paid for today.
+- Otherwise whichever happened last is the client's state: the latest
+  cancellation, if it came on or after the live cycle ran out (grace
+  included), or else that cycle, as `expired`.
+
+Keep that column out of `where`, or the terminated rows are never seen at all.
 
 ### Licences (optional)
 
@@ -288,20 +338,29 @@ this is configuration and not code: no two products say it the same way.
 ```
 
 **A date that caps access** — School Monitor has no status at all; access is
-derived from dates, and `license_expires_at` is an administrative ceiling on
-them. The rows are per branch, reached through the branch table:
+derived from dates, and `license_expires_at` (its payment deadline, which its
+own Finance staff set too) caps them. Each branch is a client there, and its
+cycles are rows naming it:
 
 ```php
 'licence' => [
     'table'   => 'branch_subscriptions',
-    'via'     => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    'via'     => 'school_branch_id',
     'ceiling' => ['column' => 'license_expires_at'],
 ],
 ```
 
 The ceiling is set to yesterday to revoke and **cleared** to grant, so your own
-paid term governs again. That is deliberate: a mistake here can only ever
-shorten access, never hand somebody time they have not paid for.
+paid term governs again. That is deliberate: nothing here can give access
+beyond the paid term and its grace.
+
+**A grant clears the deadline whoever set it, and that is intended.** The column
+is shared with School Monitor's Finance staff, and the hourly pull re-applies
+every granted licence, not only those that changed. A deadline Finance sets on
+a branch NugsoftOS grants therefore lasts until the next pull. NugsoftOS is the
+master for whether a branch may work: to keep an overdue branch out, switch it
+off there, or suspend it in School Monitor (`suspended_at`, which this package
+reads through `blocks` and never writes).
 
 A licence covers the whole client, so where the rows are per branch every
 branch of that client is written. A client is either on or off, never half.
@@ -337,6 +396,24 @@ Where that table soft-deletes, say so:
 Without it this package caps rows your product never reads, then reads them back
 and reports a restriction nobody is enforcing — which shows up in Retention
 Intel as a disagreement that no amount of re-sending will clear.
+
+Three more keys are read back and never written, for a product that keeps more
+than one fact about access:
+
+```php
+'blocks'      => ['suspended_at'],               // set on any row: they may not work
+'term_ends'   => ['end_date', 'grace_ends_at'],  // rows past these are not asked
+'term_starts' => ['start_date'],                 // rows not yet begun are not asked
+```
+
+`blocks` reports a suspension the product made for itself, which reading only
+the ceiling missed. `term_ends` stops a cap left on a cycle that ended last year
+from holding the client at "no access" for good; where every row's term is over
+the read-back answers "no idea", and the dates say expired. `term_starts` does
+the same for a renewal bought in advance: a deadline or a suspension on a cycle
+that has not begun does not hold back the one running today. Where nothing has
+begun yet, the next cycle to begin is asked, which is the row `pick => current`
+reports.
 
 Set `RETENTION_LICENCE_SECRET` to the value issued with your API key. Without
 it nothing is received — an endpoint that switches clients off must not take

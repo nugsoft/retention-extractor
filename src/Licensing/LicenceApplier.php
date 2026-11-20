@@ -6,6 +6,7 @@ namespace Nugsoft\RetentionExtractor\Licensing;
 
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
@@ -33,8 +34,16 @@ use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
  *
  * The ceiling strategy revokes by setting the date to yesterday rather than by
  * deleting a term, and grants by clearing it so the product's own paid term
- * governs again. That is deliberate: it means a mistake here can only ever
- * shorten access, never hand somebody time they have not paid for.
+ * governs again. That is deliberate: nothing here can give access beyond the
+ * paid term and its grace.
+ *
+ * A grant does clear the ceiling whoever set it. In School Monitor that column
+ * is also the payment deadline its own Finance staff set, and every pull
+ * re-applies each granted licence, so a deadline set on a branch NugsoftOS
+ * grants lasts until the next pull. That is intended: NugsoftOS is the master
+ * for whether a client may work. A product that wants to keep somebody out on
+ * its own account says so in a `blocks` column, which is read and never
+ * written.
  */
 class LicenceApplier
 {
@@ -131,6 +140,21 @@ class LicenceApplier
             ->whereIn($this->primaryKey(), $ids)
             ->get();
 
+        $today = now()->startOfDay();
+
+        $rows = $this->alreadyStarted($this->stillRunning($rows, $today), $today);
+
+        // Every term behind the client has run out. Nothing here is holding
+        // them back or letting them in, so there is nothing to report — the
+        // dates already say expired, and "no idea" lets them say it.
+        if ($rows->isEmpty()) {
+            return null;
+        }
+
+        if ($this->anyBlocked($rows)) {
+            return false;
+        }
+
         $status = $this->config['status'] ?? null;
 
         if (is_array($status)) {
@@ -144,7 +168,6 @@ class LicenceApplier
         /** @var array<string, mixed> $ceiling */
         $ceiling = $this->config['ceiling'];
         $column = (string) $ceiling['column'];
-        $today = now()->startOfDay();
 
         return $rows->every(function ($row) use ($column, $today): bool {
             $capped = $row->{$column} ?? null;
@@ -152,6 +175,117 @@ class LicenceApplier
             // No cap at all means nothing is holding this client back.
             return $capped === null || Carbon::parse((string) $capped)->startOfDay()->gte($today);
         });
+    }
+
+    /**
+     * Only the rows whose own term has not yet run out, where the mapping
+     * says how to tell.
+     *
+     * A product that adds a row per cycle keeps every cycle it ever sold, and
+     * the read-back asks each of them. A deadline left on last year's cycle
+     * then held the client at "no access" for good — capping a term that had
+     * already ended, and so restricting nothing the product would enforce.
+     *
+     * `term_ends` names the columns whose latest value is when a row's term is
+     * over (School Monitor: the paid end and the grace end). Without it every
+     * row is asked, as it always was.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     * @return Collection<int, \stdClass>
+     */
+    private function stillRunning(Collection $rows, Carbon $today): Collection
+    {
+        $columns = array_values(array_filter((array) ($this->config['term_ends'] ?? []), 'filled'));
+
+        if ($columns === []) {
+            return $rows;
+        }
+
+        return $rows->filter(function (object $row) use ($columns, $today): bool {
+            $ends = array_filter(array_map(fn (string $column): mixed => $row->{$column} ?? null, $columns), 'filled');
+
+            // A row that says nothing about its end is not one to rule out.
+            if ($ends === []) {
+                return true;
+            }
+
+            return collect($ends)
+                ->contains(fn (mixed $end): bool => Carbon::parse((string) $end)->startOfDay()->gte($today));
+        })->values();
+    }
+
+    /**
+     * Only the rows whose own term has begun, where the mapping says how to
+     * tell — or, where none has, those that begin first.
+     *
+     * The same rule the subscription push follows with `pick => current`, and
+     * it has to be: a renewal bought in advance is a row that is still running
+     * but has not started, and a deadline or a suspension stamped on it held
+     * the branch at "no access" while the product let it work. The push then
+     * reported the cycle running today as suspended, and nobody had suspended
+     * anything.
+     *
+     * `term_starts` names the columns whose earliest value is when a row's
+     * term begins (School Monitor: the start date). Without it every row is
+     * asked, as it always was.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     * @return Collection<int, \stdClass>
+     */
+    private function alreadyStarted(Collection $rows, Carbon $today): Collection
+    {
+        $columns = array_values(array_filter((array) ($this->config['term_starts'] ?? []), 'filled'));
+
+        if ($columns === [] || $rows->isEmpty()) {
+            return $rows;
+        }
+
+        $startOf = function (object $row) use ($columns): ?string {
+            $starts = array_filter(array_map(fn (string $column): mixed => $row->{$column} ?? null, $columns), 'filled');
+
+            return $starts === []
+                ? null
+                : collect($starts)->map(fn (mixed $start): string => Carbon::parse((string) $start)->toDateString())->min();
+        };
+
+        $day = $today->toDateString();
+
+        // A row that says nothing about its start is not one to rule out.
+        $started = $rows->filter(fn (object $row): bool => ($startOf($row) ?? $day) <= $day)->values();
+
+        if ($started->isNotEmpty()) {
+            return $started;
+        }
+
+        // Nothing has begun yet: the next cycle to begin is the one the
+        // product would call current, so it is the one asked.
+        $next = $rows->map($startOf)->min();
+
+        return $rows->filter(fn (object $row): bool => $startOf($row) === $next)->values();
+    }
+
+    /**
+     * Whether the product has blocked the client by a means of its own.
+     *
+     * NugsoftOS writes one column, but a product can stop somebody working in
+     * others it owns — School Monitor suspends a branch by stamping
+     * `suspended_at` on every live cycle, and reading only the ceiling back
+     * reported every such branch as free to work. `blocks` names those
+     * columns; any of them set on any row means no. They are read and never
+     * written: lifting a product's own suspension is the product's business.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     */
+    private function anyBlocked(Collection $rows): bool
+    {
+        $columns = array_values(array_filter((array) ($this->config['blocks'] ?? []), 'filled'));
+
+        if ($columns === []) {
+            return false;
+        }
+
+        return $rows->contains(fn (object $row): bool => collect($columns)
+            ->contains(fn (string $column): bool => filled($row->{$column} ?? null)));
     }
 
     /**
@@ -203,7 +337,8 @@ class LicenceApplier
             (string) $ceiling['column'] => $licence->grantsAccess
                 // Cleared, so the product's own term governs again. Setting it
                 // to our end date instead would let this package extend a term
-                // the product was never paid for.
+                // the product was never paid for. A deadline the product set
+                // itself is cleared too, on purpose: see the class docblock.
                 ? null
                 : now()->subDay()->startOfDay()->toDateString(),
         ];
@@ -214,8 +349,8 @@ class LicenceApplier
      *
      * `via` is either a column on the licence table itself, or the two-step
      * path used elsewhere in this config for a table that only knows something
-     * beneath the client — School Monitor's subscriptions know their branch,
-     * and the branch knows the school.
+     * beneath the client. School Monitor needs only the column: each branch is
+     * a client there, and its subscription rows name it.
      *
      * An optional fourth element narrows that middle table, as it does for the
      * metrics: `['deleted_at' => null]` leaves a closed branch's rows alone,

@@ -265,18 +265,21 @@ return [
     | Subscriptions (optional)
     |--------------------------------------------------------------------------
     |
-    | Leave null and no subscription data is pushed. `status_map` translates
-    | your product's wording into NugsoftOS's: active, expired, cancelled.
+    | Leave null and no subscription data is pushed. NugsoftOS knows five
+    | statuses: active, grace, expired, suspended and cancelled. `status_map`
+    | translates your product's wording into those. Name `grace` or `deadline`
+    | below and the dates decide the status instead; your status column then
+    | counts only where it says cancelled, which no date can tell.
     |
     | The row reported is whichever ends last, so two keys matter where a
     | product keeps more than one:
     |
     |   'via'    a column on the subscription table, or the same two-step path
     |            the metrics use where the table only knows something beneath
-    |            the client. School Monitor bills per branch, and a branch row
-    |            is what names the school:
+    |            the client. School Monitor needs only the column: each branch
+    |            is a client there, and a subscription row names its branch:
     |
-    |                'via' => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    |                'via' => 'school_branch_id',
     |
     |   'where'  drops rows the product would not read itself. This query does
     |            not go through your models, so a soft-deleted future term
@@ -292,6 +295,46 @@ return [
     |            mapping must name a `driver` that can switch one branch:
     |
     |                'branch' => 'branch_id',
+    |
+    | A product that adds a row per cycle, rather than editing one row per
+    | term, wants four more. All optional; leave them out and nothing changes.
+    |
+    |   'pick'     'last' (the default) reports the row ending last. 'current'
+    |              reports the row that has started and ends last, or the next
+    |              to begin where none has — so a renewal bought in advance is
+    |              not reported as the term running today. Name 'primary_key'
+    |              too and a tie goes to the newest row.
+    |
+    |   'grace'    a column holding free access after the end.
+    |   'deadline' a column holding a payment deadline, capping end and grace.
+    |
+    |              With either, the push also says when access really ends and
+    |              why: `effective_end_date`, `ends_because` (term, grace or
+    |              payment_deadline), `grace_ends_at` and `payment_deadline`.
+    |              `end_date` stays the paid term. The status comes from these
+    |              dates: active, grace, suspended or expired, or cancelled
+    |              where `cancelled` below or your status column says so. A
+    |              deadline that has
+    |              passed while the paid term still runs is suspended, not
+    |              expired — the time was bought, and it is being withheld.
+    |              One that cuts grace short is expired: grace was not bought.
+    |
+    |   'cancelled' a column that, once set, means the term was terminated.
+    |              Such a row is reported as cancelled, but only where nothing
+    |              newer stands: a term nobody cancelled that is still running
+    |              or yet to begin comes first. Otherwise whichever happened
+    |              last wins — the latest cancellation, or the live term
+    |              running out. Leave it out of `where`, or it is never seen.
+    |
+    | School Monitor, whose renewals are new rows and whose revoked cycles are
+    | terminated:
+    |
+    |       'via'       => 'school_branch_id',
+    |       'pick'      => 'current',
+    |       'grace'     => 'grace_ends_at',
+    |       'deadline'  => 'license_expires_at',
+    |       'cancelled' => 'revoked_at',
+    |       'where'     => ['deleted_at' => null],
     |
     */
 
@@ -325,16 +368,24 @@ return [
     |
     |   'ceiling'  a date that caps access. School Monitor has no status at
     |              all — access is derived from dates, and `license_expires_at`
-    |              is an administrative ceiling on them:
+    |              (its payment deadline, which its own Finance staff set too)
+    |              caps them:
     |
     |       'table'   => 'branch_subscriptions',
-    |       'via'     => ['school_branch_id' => ['school_branches', 'id', 'school_id']],
+    |       'via'     => 'school_branch_id',
     |       'ceiling' => ['column' => 'license_expires_at'],
     |
     | The ceiling is set to yesterday to revoke and cleared to grant, so the
-    | product's own paid term governs again. That is deliberate: a mistake here
-    | can only ever shorten access, never hand somebody time they have not paid
-    | for.
+    | product's own paid term governs again. That is deliberate: nothing here
+    | can give access beyond the paid term and its grace.
+    |
+    | A grant clears the ceiling whoever set it, and that is intended too. In
+    | School Monitor the column is also Finance's payment deadline, and every
+    | pull re-applies each granted licence, not only those that changed — so a
+    | deadline set on a branch NugsoftOS grants lasts until the next pull.
+    | NugsoftOS is the master for whether a branch may work: to keep an
+    | overdue branch out, switch it off there, or suspend it in School Monitor
+    | (`suspended_at`, which this package reads and never writes).
     |
     | A licence covers the whole client. Where the rows are per branch, every
     | branch of that client is written — a client is either on or off, never
@@ -348,6 +399,25 @@ return [
     | null value means IS NULL:
     |
     |       'where' => ['deleted_at' => null],
+    |
+    | Three more are read back and never written, for a product that keeps
+    | more than one fact about access:
+    |
+    |   'blocks'    columns any of which, set on any row, means the client may
+    |               not work — a suspension the product keeps for itself.
+    |               School Monitor: ['suspended_at'].
+    |
+    |   'term_ends' columns whose latest value is when a row's own term is over.
+    |               Rows already past it are not asked, so a ceiling left on a
+    |               cycle that ended last year cannot hold the client at "no
+    |               access". School Monitor: ['end_date', 'grace_ends_at'].
+    |
+    |   'term_starts' columns whose earliest value is when a row's own term
+    |               begins. Rows not yet begun are not asked, or, where none
+    |               has begun, only the next to begin — so a renewal bought
+    |               in advance cannot hold the cycle running today at "no
+    |               access". The same rule as the subscription `pick =>
+    |               current`. School Monitor: ['start_date'].
     |
     */
 
