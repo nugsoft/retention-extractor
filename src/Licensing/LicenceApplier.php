@@ -140,6 +140,12 @@ class LicenceApplier
             return null;
         }
 
+        // First, because it outranks every date: the product has switched
+        // this client off on its own row, whatever its terms say.
+        if ($this->blockedOnItsOwnRow($externalId)) {
+            return false;
+        }
+
         $ids = $this->rowIdsFor($externalId);
 
         if ($ids === []) {
@@ -297,6 +303,44 @@ class LicenceApplier
     private function startColumns(): array
     {
         return array_values(array_filter((array) ($this->config['term_starts'] ?? []), 'filled'));
+    }
+
+    /**
+     * Whether the product has switched the client off on the client's own row,
+     * rather than on any of its terms.
+     *
+     * School Monitor's manager can suspend a branch outright: it stamps
+     * `school_branches.suspended_at`, and the school app logs that branch's
+     * users out whatever its subscription says. `blocks` cannot see it — it
+     * reads the licence table, and this is another table entirely — so such a
+     * branch was reported as free to work, NugsoftOS agreed, and its health
+     * score read it as going dormant.
+     *
+     * `client_blocks` names that row and the columns on it, any of which set
+     * means no. Read and never written, like `blocks`: lifting it is the
+     * product's business.
+     *
+     *     'client_blocks' => ['table' => 'school_branches', 'key' => 'id', 'columns' => ['suspended_at']],
+     */
+    private function blockedOnItsOwnRow(string $externalId): bool
+    {
+        $config = $this->config['client_blocks'] ?? null;
+
+        if (! is_array($config) || blank($config['table'] ?? null)) {
+            return false;
+        }
+
+        $columns = array_values(array_filter((array) ($config['columns'] ?? []), 'filled'));
+
+        if ($columns === []) {
+            return false;
+        }
+
+        $row = DB::table((string) $config['table'])
+            ->where((string) ($config['key'] ?? 'id'), $externalId)
+            ->first($columns);
+
+        return $row !== null && collect($columns)->contains(fn (string $column): bool => filled($row->{$column} ?? null));
     }
 
     /**

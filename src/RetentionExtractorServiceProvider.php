@@ -136,6 +136,11 @@ class RetentionExtractorServiceProvider extends ServiceProvider
     /**
      * Asks for the current licences on a schedule, so a webhook nobody
      * received stops meaning a suspended client keeps working.
+     *
+     * Both schedules here run on one server only. A product whose scheduler
+     * runs on every web server would otherwise pull, and push, once per
+     * server: harmless to the answer, since both are idempotent, but every
+     * licence written and every snapshot sent that many times over.
      */
     private function scheduleLicencePull(): void
     {
@@ -149,6 +154,7 @@ class RetentionExtractorServiceProvider extends ServiceProvider
             $event = $this->app->make(Schedule::class)
                 ->command('retention:sync-licence')
                 ->withoutOverlapping()
+                ->onOneServer()
                 ->runInBackground();
 
             // `hourly` is the sensible default and the only word most products
@@ -178,6 +184,7 @@ class RetentionExtractorServiceProvider extends ServiceProvider
                 ->command('retention:push')
                 ->dailyAt((string) config('retention-extractor.schedule.time'))
                 ->withoutOverlapping()
+                ->onOneServer()
                 ->runInBackground();
         });
     }

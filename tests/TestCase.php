@@ -105,6 +105,9 @@ abstract class TestCase extends Orchestra
             $table->string('phone')->nullable();
             $table->string('email')->nullable();
             $table->boolean('is_active')->default(true);
+            // A switch on the client's own row, as School Monitor keeps on a
+            // branch it has deactivated (`client_blocks`).
+            $table->timestamp('suspended_at')->nullable();
             $table->timestamps();
         });
 

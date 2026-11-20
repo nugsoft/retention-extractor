@@ -397,6 +397,41 @@ describe('reading back a product that keeps a cycle per row', function (): void 
         expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeTrue();
     });
 
+    it('says no while the product has switched the client off on its own row', function (): void {
+        // School Monitor's manager deactivates a branch on `school_branches`,
+        // not on any of its terms, and the school app then lets nobody in.
+        withCycleLicence(['client_blocks' => ['table' => 'businesses', 'key' => 'id', 'columns' => ['suspended_at']]]);
+        DB::table('businesses')->where('id', $this->business->id)->update(['suspended_at' => now()]);
+
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeFalse();
+    });
+
+    it('pushes a running term as suspended once the client is switched off on its own row', function (): void {
+        withCycleSubscription();
+        withCycleLicence(['client_blocks' => ['table' => 'businesses', 'key' => 'id', 'columns' => ['suspended_at']]]);
+        DB::table('businesses')->where('id', $this->business->id)->update(['suspended_at' => now()]);
+
+        expect(termReported()['status'])->toBe('suspended');
+    });
+
+    it('never writes the switch on the client\'s own row', function (): void {
+        withCycleLicence(['client_blocks' => ['table' => 'businesses', 'key' => 'id', 'columns' => ['suspended_at']]]);
+        DB::table('businesses')->where('id', $this->business->id)->update(['suspended_at' => now()]);
+
+        cycleApplier()->apply(LicenceState::fromPayload(licencePayload([
+            'external_id' => (string) $this->business->id,
+            'grants_access' => true,
+        ])));
+
+        expect(DB::table('businesses')->where('id', $this->business->id)->value('suspended_at'))->not->toBeNull();
+    });
+
+    it('reads nothing on the client\'s own row unless the mapping names it', function (): void {
+        DB::table('businesses')->where('id', $this->business->id)->update(['suspended_at' => now()]);
+
+        expect(cycleApplier()->grantsAccess((string) $this->business->id))->toBeTrue();
+    });
+
     it('says no while the product has suspended the branch itself', function (): void {
         DB::table('branch_licences')->where('id', $this->current)->update(['suspended_at' => now()]);
 

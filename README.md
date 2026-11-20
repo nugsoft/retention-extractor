@@ -430,14 +430,25 @@ Without it this package caps rows your product never reads, then reads them back
 and reports a restriction nobody is enforcing — which shows up in Retention
 Intel as a disagreement that no amount of re-sending will clear.
 
-Three more keys are read back and never written, for a product that keeps more
+Four more keys are read back and never written, for a product that keeps more
 than one fact about access:
 
 ```php
-'blocks'      => ['suspended_at'],               // set on any row: they may not work
-'term_ends'   => ['end_date', 'grace_ends_at'],  // rows past these are not asked
-'term_starts' => ['start_date'],                 // rows not yet begun are not asked
+'blocks'        => ['suspended_at'],               // set on any row: they may not work
+'term_ends'     => ['end_date', 'grace_ends_at'],  // rows past these are not asked
+'term_starts'   => ['start_date'],                 // rows not yet begun are not asked
+'client_blocks' => [                               // set on the client's own row: they may not work
+    'table' => 'school_branches', 'key' => 'id', 'columns' => ['suspended_at'],
+],
 ```
+
+`client_blocks` is for a switch the product keeps on the client itself rather
+than on any of its terms. School Monitor's manager deactivates a branch by
+stamping `school_branches.suspended_at`, and the school app then logs that
+branch's users out whatever its subscription says. `blocks` cannot see it,
+because it reads the licence table. With `client_blocks` named, such a client
+reads back as no access, so a running term is pushed as `suspended`. The row is
+found by the client's external id in `key`.
 
 `blocks` reports a suspension the product made for itself, which reading only
 the ceiling missed. `term_ends` stops a cap left on a cycle that ended last year

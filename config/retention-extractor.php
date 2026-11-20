@@ -417,7 +417,7 @@ return [
     |
     |       'where' => ['deleted_at' => null],
     |
-    | Three more are read back and never written, for a product that keeps
+    | Four more are read back and never written, for a product that keeps
     | more than one fact about access:
     |
     |   'blocks'    columns any of which, set on any row, means the client may
@@ -439,6 +439,15 @@ return [
     |               NugsoftOS's revoke caps waiting cycles too, and School
     |               Monitor calls such a branch scheduled, not overdue.
     |               School Monitor: ['start_date'].
+    |
+    |   'client_blocks' a switch kept on the client's own row rather than on
+    |               any of its terms: the table, the column holding the
+    |               client's external id, and columns any of which set means
+    |               the client may not work. School Monitor deactivates a
+    |               branch on `school_branches.suspended_at`, which `blocks`
+    |               cannot see from the licence table:
+    |
+    |                   ['table' => 'school_branches', 'key' => 'id', 'columns' => ['suspended_at']]
     |
     */
 
