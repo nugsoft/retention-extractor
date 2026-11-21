@@ -345,11 +345,13 @@ return [
     |              not a deadline, and is left out.
     |
     |   'cancelled' a column that, once set, means the term was terminated.
-    |              Such a row is reported as cancelled, but only where nothing
-    |              newer stands: a term nobody cancelled that is still running
-    |              or yet to begin comes first. Otherwise whichever happened
-    |              last wins — the latest cancellation, or the live term
-    |              running out. Access ends on the day it was cancelled, where
+    |              It supersedes every other state: where the client's newest
+    |              row (by primary_key) is cancelled, the client is, and no
+    |              older cycle carries it back into grace. Only a row added
+    |              after it lifts it. Otherwise a term nobody cancelled that is
+    |              still running or yet to begin comes first, and then
+    |              whichever happened last wins — the latest cancellation, or
+    |              the live term running out. Access ends on the day it was cancelled, where
     |              that comes first: `effective_end_date` is that day and
     |              `ends_because` is cancelled. Naming the column also lifts it
     |              out of `where`, so keep it filtered there for any install

@@ -327,10 +327,15 @@ one exception: where it says `cancelled`, directly or through `status_map`,
 that is reported. No date can tell a cancellation.
 
 `cancelled` names a column that, once set, means the term was terminated, and
-such a row is reported as `cancelled`, but only where nothing newer stands:
+such a row is reported as `cancelled`. A cancellation supersedes every other
+state:
 
-- A cycle nobody cancelled that is still running, or yet to begin, is reported
-  first. An old cycle terminated long ago does not hide the one paid for today.
+- Where the client's newest row (by `primary_key`) is cancelled, the client is.
+  An older cycle cannot carry it back into grace or keep it active; only a row
+  added after the cancellation lifts it. That is School Monitor's own rule.
+- Otherwise a cycle nobody cancelled that is still running, or yet to begin, is
+  reported first. An old cycle terminated long ago does not hide the one paid
+  for today.
 - Otherwise whichever happened last is the client's state: the latest
   cancellation, if it came on or after the live cycle ran out (grace
   included), or else that cycle, as `expired`.

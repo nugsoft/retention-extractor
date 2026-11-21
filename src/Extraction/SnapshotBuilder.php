@@ -276,11 +276,20 @@ class SnapshotBuilder
      * yet, the next one to begin. School Monitor's own rule, word for word.
      *
      * `cancelled` names a column that, once set, means the term was
-     * terminated: School Monitor's `revoked_at`. A term still running, or yet
-     * to begin, that nobody cancelled is reported first, so an old cycle
-     * terminated years ago cannot hide the one paid for today. Where none is,
-     * whichever happened last is the client's state: the latest cancellation,
-     * if it came on or after the live term ran out, or else that term.
+     * terminated: School Monitor's `revoked_at`. A cancellation supersedes
+     * every other state, so where the client's newest row — by primary key —
+     * is cancelled, the client is: a cycle older than the revoke cannot carry
+     * it back into grace, or keep it active. Only a row added after it, which
+     * is how School Monitor assigns a branch again, lifts it. That is the rule
+     * School Monitor's school app enforces; revokes made before its manager
+     * stamped every cycle left exactly that shape, an old cycle in grace
+     * beneath a newer revoked one.
+     *
+     * Otherwise a term still running, or yet to begin, that nobody cancelled
+     * is reported first, so an old cycle terminated years ago cannot hide the
+     * one paid for today. Where none is, whichever happened last is the
+     * client's state: the latest cancellation, if it came on or after the live
+     * term ran out, or else that term.
      *
      * @param  array<string, mixed>  $mapping
      */
@@ -290,6 +299,14 @@ class SnapshotBuilder
 
         if ($column === null) {
             return $this->pickRow($query, $mapping);
+        }
+
+        if (filled($mapping['primary_key'] ?? null)) {
+            $newest = (clone $query)->orderByDesc((string) $mapping['primary_key'])->first();
+
+            if ($newest !== null && $this->dateOn($newest, $column) !== null) {
+                return $newest;
+            }
         }
 
         $live = $this->pickRow((clone $query)->whereNull($column), $mapping);

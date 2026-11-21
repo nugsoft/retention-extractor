@@ -251,15 +251,30 @@ describe('which cycle is the term', function (): void {
         expect(termReported()['status'])->toBe('cancelled');
     });
 
-    it('keeps a cycle in grace over a renewal that was cancelled', function (): void {
+    it('never reports a cycle in grace beneath a newer one that was revoked', function (): void {
+        // A revoke supersedes every other state: once the newest row is
+        // revoked, an older cycle cannot carry the branch back into grace.
+        // School Monitor's school app reads it the same way.
         withCycleSubscription();
 
         cycle($this->branch, day(-365), day(-2), ['grace_ends_at' => day(5)]);
         cycle($this->branch, day(-1), day(364), ['revoked_at' => now()]);
 
         expect(termReported())
-            ->status->toBe('grace')
-            ->end_date->toBe(day(-2));
+            ->status->toBe('cancelled')
+            ->ends_because->toBe('cancelled');
+    });
+
+    it('reports a branch assigned again after a revoke by its new cycle', function (): void {
+        // A row added after the revoke is how School Monitor lifts one.
+        withCycleSubscription();
+
+        cycle($this->branch, day(-300), day(60), ['revoked_at' => now()->subDays(10)]);
+        cycle($this->branch, day(-5), day(360));
+
+        expect(termReported())
+            ->status->toBe('active')
+            ->start_date->toBe(day(-5));
     });
 
     it('still drops terminated rows where the mapping filters them out', function (): void {
