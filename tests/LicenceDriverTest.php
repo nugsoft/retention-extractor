@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Nugsoft\RetentionExtractor\Events\LicenceApplied;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
 use Nugsoft\RetentionExtractor\Licensing\LicenceState;
@@ -40,6 +42,18 @@ it('records nothing as applied for a client the driver does not have', function 
 
     expect($written)->toBe(0)
         ->and(DB::table('retention_licences')->count())->toBe(0);
+});
+
+it('announces what the driver wrote, and nothing where it wrote nothing', function (): void {
+    Event::fake([LicenceApplied::class]);
+
+    $applier = new LicenceApplier(['driver' => RecordingLicenceDriver::class]);
+
+    $applier->apply(LicenceState::fromPayload(licencePayload(['external_id' => '99'])));
+    $applier->apply(LicenceState::fromPayload(licencePayload(['grants_access' => false])));
+
+    Event::assertDispatchedTimes(LicenceApplied::class, 1);
+    Event::assertDispatched(LicenceApplied::class, fn (LicenceApplied $event): bool => $event->licence->externalId === '1');
 });
 
 it('reads access back through the driver', function (): void {

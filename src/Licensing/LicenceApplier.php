@@ -8,6 +8,8 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Nugsoft\RetentionExtractor\Events\LicenceApplied;
 use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
 
 /**
@@ -38,12 +40,17 @@ use Nugsoft\RetentionExtractor\Exceptions\ConfigurationException;
  * paid term and its grace.
  *
  * A grant does clear the ceiling whoever set it. In School Monitor that column
- * is also the payment deadline its own Finance staff set, and every pull
- * re-applies each granted licence, so a deadline set on a branch NugsoftOS
- * grants lasts until the next pull. That is intended: NugsoftOS is the master
+ * is also the payment deadline, and every pull re-applies each granted
+ * licence, so a deadline set in School Monitor's manager app on a branch
+ * NugsoftOS grants lasts until the next pull. That is intended: Finance makes
+ * School Monitor's subscriptions and licences in NugsoftOS, which is the master
  * for whether a client may work. A product that wants to keep somebody out on
  * its own account says so in a `blocks` column, which is read and never
  * written.
+ *
+ * Every write fires `LicenceApplied`. The rows change under the product's
+ * models rather than through them, so a product that caches what those rows
+ * say has to be told.
  */
 class LicenceApplier
 {
@@ -82,6 +89,8 @@ class LicenceApplier
 
             if ($written > 0) {
                 $this->rememberApplied($licence);
+
+                event(new LicenceApplied($licence, $written));
             }
 
             return $written;
@@ -99,6 +108,8 @@ class LicenceApplier
             ->update($this->valuesFor($licence));
 
         $this->rememberApplied($licence);
+
+        event(new LicenceApplied($licence, count($ids)));
 
         return count($ids);
     }
@@ -130,6 +141,12 @@ class LicenceApplier
             return null;
         }
 
+        // First, because it outranks every date: the product has switched
+        // this client off on its own row, whatever its terms say.
+        if ($this->blockedOnItsOwnRow($externalId)) {
+            return false;
+        }
+
         $ids = $this->rowIdsFor($externalId);
 
         if ($ids === []) {
@@ -142,7 +159,18 @@ class LicenceApplier
 
         $today = now()->startOfDay();
 
-        $rows = $this->alreadyStarted($this->stillRunning($rows, $today), $today);
+        $running = $this->stillRunning($rows, $today);
+        $rows = $this->alreadyStarted($running, $today);
+
+        // Nothing has begun yet, which only `term_starts` can tell. The product
+        // lets nobody in on a term still to come, and the dates already say
+        // so: the push reports it as future. Only a suspension the product
+        // made itself is news. A ceiling is not — School Monitor ranks a
+        // cycle still to come above an overdue one, and NugsoftOS's revoke
+        // lands on every cycle, waiting ones included.
+        if ($running->isNotEmpty() && $rows->isEmpty()) {
+            return $this->anyBlocked($this->nextToBegin($running)) ? false : null;
+        }
 
         // Every term behind the client has run out. Nothing here is holding
         // them back or letting them in, so there is nothing to report — the
@@ -216,7 +244,7 @@ class LicenceApplier
 
     /**
      * Only the rows whose own term has begun, where the mapping says how to
-     * tell — or, where none has, those that begin first.
+     * tell. Empty where none has.
      *
      * The same rule the subscription push follows with `pick => current`, and
      * it has to be: a renewal bought in advance is a row that is still running
@@ -234,34 +262,86 @@ class LicenceApplier
      */
     private function alreadyStarted(Collection $rows, Carbon $today): Collection
     {
-        $columns = array_values(array_filter((array) ($this->config['term_starts'] ?? []), 'filled'));
-
-        if ($columns === [] || $rows->isEmpty()) {
+        if ($this->startColumns() === []) {
             return $rows;
         }
-
-        $startOf = function (object $row) use ($columns): ?string {
-            $starts = array_filter(array_map(fn (string $column): mixed => $row->{$column} ?? null, $columns), 'filled');
-
-            return $starts === []
-                ? null
-                : collect($starts)->map(fn (mixed $start): string => Carbon::parse((string) $start)->toDateString())->min();
-        };
 
         $day = $today->toDateString();
 
         // A row that says nothing about its start is not one to rule out.
-        $started = $rows->filter(fn (object $row): bool => ($startOf($row) ?? $day) <= $day)->values();
+        return $rows->filter(fn (object $row): bool => ($this->startOf($row) ?? $day) <= $day)->values();
+    }
 
-        if ($started->isNotEmpty()) {
-            return $started;
+    /**
+     * The rows that begin first: the cycle the product would call current
+     * where none has begun.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     * @return Collection<int, \stdClass>
+     */
+    private function nextToBegin(Collection $rows): Collection
+    {
+        $next = $rows->map(fn (object $row): ?string => $this->startOf($row))->min();
+
+        return $rows->filter(fn (object $row): bool => $this->startOf($row) === $next)->values();
+    }
+
+    /**
+     * When a row's term begins: the earliest of its `term_starts` columns.
+     */
+    private function startOf(object $row): ?string
+    {
+        $starts = array_filter(array_map(fn (string $column): mixed => $row->{$column} ?? null, $this->startColumns()), 'filled');
+
+        return $starts === []
+            ? null
+            : collect($starts)->map(fn (mixed $start): string => Carbon::parse((string) $start)->toDateString())->min();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function startColumns(): array
+    {
+        return array_values(array_filter((array) ($this->config['term_starts'] ?? []), 'filled'));
+    }
+
+    /**
+     * Whether the product has switched the client off on the client's own row,
+     * rather than on any of its terms.
+     *
+     * School Monitor's manager can suspend a branch outright: it stamps
+     * `school_branches.suspended_at`, and the school app logs that branch's
+     * users out whatever its subscription says. `blocks` cannot see it — it
+     * reads the licence table, and this is another table entirely — so such a
+     * branch was reported as free to work, NugsoftOS agreed, and its health
+     * score read it as going dormant.
+     *
+     * `client_blocks` names that row and the columns on it, any of which set
+     * means no. Read and never written, like `blocks`: lifting it is the
+     * product's business.
+     *
+     *     'client_blocks' => ['table' => 'school_branches', 'key' => 'id', 'columns' => ['suspended_at']],
+     */
+    private function blockedOnItsOwnRow(string $externalId): bool
+    {
+        $config = $this->config['client_blocks'] ?? null;
+
+        if (! is_array($config) || blank($config['table'] ?? null)) {
+            return false;
         }
 
-        // Nothing has begun yet: the next cycle to begin is the one the
-        // product would call current, so it is the one asked.
-        $next = $rows->map($startOf)->min();
+        $columns = array_values(array_filter((array) ($config['columns'] ?? []), 'filled'));
 
-        return $rows->filter(fn (object $row): bool => $startOf($row) === $next)->values();
+        if ($columns === []) {
+            return false;
+        }
+
+        $row = DB::table((string) $config['table'])
+            ->where((string) ($config['key'] ?? 'id'), $externalId)
+            ->first($columns);
+
+        return $row !== null && collect($columns)->contains(fn (string $column): bool => filled($row->{$column} ?? null));
     }
 
     /**
@@ -294,6 +374,26 @@ class LicenceApplier
      * The pull always wins, because it asks for the current state rather than
      * carrying one; only a pushed webhook can arrive out of order.
      */
+    /**
+     * Whether NugsoftOS has ever delivered a licence for this client here.
+     *
+     * Every licence applied is remembered, and the hourly pull applies every
+     * licence NugsoftOS holds, so this is the list of clients it knows. An
+     * ended client is reported only if it is on it: reporting one NugsoftOS
+     * has never heard of would create a licence there, already cancelled, and
+     * count it as a client lost.
+     */
+    public function hasLicensed(string $externalId): bool
+    {
+        if (! Schema::hasTable('retention_licences')) {
+            return false;
+        }
+
+        return DB::table('retention_licences')
+            ->where('external_id', mb_strtolower($externalId))
+            ->exists();
+    }
+
     public function isStale(LicenceState $licence): bool
     {
         $applied = DB::table('retention_licences')

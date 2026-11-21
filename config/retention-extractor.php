@@ -118,6 +118,24 @@ return [
         'scope' => null,
 
         /*
+        | Optional: a column on the client's own row that, once set, means the
+        | product has closed this client for good — deleted, struck off. A
+        | model that soft-deletes leaves such a client out of everything above
+        | by itself, so it would simply stop being reported, and NugsoftOS
+        | would go on granting its licence and scoring it as going dormant.
+        |
+        | Named, a closed client's term is reported once more, as cancelled:
+        | access ends on the day it closed, unless the term had run out first.
+        | No activity is sent for it, and only a client NugsoftOS has licensed
+        | here is reported — one it never knew would arrive as a lost client.
+        | School Monitor soft-deletes a closed branch and nothing restores it:
+        |
+        |     'ended' => 'deleted_at',
+        */
+
+        'ended' => null,
+
+        /*
         |----------------------------------------------------------------------
         | Branches beneath each client
         |----------------------------------------------------------------------
@@ -265,8 +283,9 @@ return [
     | Subscriptions (optional)
     |--------------------------------------------------------------------------
     |
-    | Leave null and no subscription data is pushed. NugsoftOS knows five
-    | statuses: active, grace, expired, suspended and cancelled. `status_map`
+    | Leave null and no subscription data is pushed. NugsoftOS knows six
+    | statuses: future, active, grace, expired, suspended and cancelled
+    | (future needs a NugsoftOS that accepts it). `status_map`
     | translates your product's wording into those. Name `grace` or `deadline`
     | below and the dates decide the status instead; your status column then
     | counts only where it says cancelled, which no date can tell.
@@ -303,28 +322,42 @@ return [
     |              reports the row that has started and ends last, or the next
     |              to begin where none has — so a renewal bought in advance is
     |              not reported as the term running today. Name 'primary_key'
-    |              too and a tie goes to the newest row.
+    |              too and a tie goes to the newest row. A row reported that
+    |              has not begun is `future`: the client holds a term but may
+    |              not work until it starts. Suspended instead, where the
+    |              licence read-back says the product suspended it itself.
     |
     |   'grace'    a column holding free access after the end.
     |   'deadline' a column holding a payment deadline, capping end and grace.
     |
     |              With either, the push also says when access really ends and
-    |              why: `effective_end_date`, `ends_because` (term, grace or
-    |              payment_deadline), `grace_ends_at` and `payment_deadline`.
-    |              `end_date` stays the paid term. The status comes from these
-    |              dates: active, grace, suspended or expired, or cancelled
-    |              where `cancelled` below or your status column says so. A
-    |              deadline that has
-    |              passed while the paid term still runs is suspended, not
-    |              expired — the time was bought, and it is being withheld.
-    |              One that cuts grace short is expired: grace was not bought.
+    |              why: `effective_end_date`, `ends_because` (term, grace,
+    |              payment_deadline or cancelled), `grace_ends_at` and
+    |              `payment_deadline`. `end_date` stays the paid term. The
+    |              status comes from these dates: active, grace, suspended or
+    |              expired, or future, or cancelled where `cancelled` below or
+    |              your status column says so. A payment deadline falls
+    |              within the paid term. One that has passed while the paid
+    |              term still runs is suspended, not expired — the time was
+    |              bought, and it is being withheld. Once the paid term is
+    |              over the client is expired, deadline or not. On a cycle yet
+    |              to begin, a date before its start is NugsoftOS's revoke,
+    |              not a deadline, and is left out.
     |
     |   'cancelled' a column that, once set, means the term was terminated.
-    |              Such a row is reported as cancelled, but only where nothing
-    |              newer stands: a term nobody cancelled that is still running
-    |              or yet to begin comes first. Otherwise whichever happened
-    |              last wins — the latest cancellation, or the live term
-    |              running out. Leave it out of `where`, or it is never seen.
+    |              It supersedes every other state: where the client's newest
+    |              row (by primary_key) is cancelled, the client is, and no
+    |              older cycle carries it back into grace. Only a row added
+    |              after it lifts it. Otherwise a term nobody cancelled that is
+    |              still running or yet to begin comes first, and then
+    |              whichever happened last wins — the latest cancellation, or
+    |              the live term running out. Access ends on the day it was cancelled, where
+    |              that comes first: `effective_end_date` is that day and
+    |              `ends_because` is cancelled. Naming the column also lifts it
+    |              out of `where`, so keep it filtered there for any install
+    |              still on an extractor that does not know this key: those
+    |              go on dropping terminated rows rather than reporting them
+    |              as live.
     |
     | School Monitor, whose renewals are new rows and whose revoked cycles are
     | terminated:
@@ -334,7 +367,7 @@ return [
     |       'grace'     => 'grace_ends_at',
     |       'deadline'  => 'license_expires_at',
     |       'cancelled' => 'revoked_at',
-    |       'where'     => ['deleted_at' => null],
+    |       'where'     => ['deleted_at' => null, 'revoked_at' => null],
     |
     */
 
@@ -367,9 +400,8 @@ return [
     |       'status' => ['column' => 'status', 'granted' => 'Active', 'revoked' => 'Suspend'],
     |
     |   'ceiling'  a date that caps access. School Monitor has no status at
-    |              all — access is derived from dates, and `license_expires_at`
-    |              (its payment deadline, which its own Finance staff set too)
-    |              caps them:
+    |              all — access is derived from dates, and `license_expires_at`,
+    |              its payment deadline, caps them:
     |
     |       'table'   => 'branch_subscriptions',
     |       'via'     => 'school_branch_id',
@@ -379,13 +411,18 @@ return [
     | product's own paid term governs again. That is deliberate: nothing here
     | can give access beyond the paid term and its grace.
     |
-    | A grant clears the ceiling whoever set it, and that is intended too. In
-    | School Monitor the column is also Finance's payment deadline, and every
-    | pull re-applies each granted licence, not only those that changed — so a
-    | deadline set on a branch NugsoftOS grants lasts until the next pull.
-    | NugsoftOS is the master for whether a branch may work: to keep an
-    | overdue branch out, switch it off there, or suspend it in School Monitor
-    | (`suspended_at`, which this package reads and never writes).
+    | A grant clears the ceiling whoever set it, and that is intended too.
+    | Finance makes School Monitor's subscriptions and licences in NugsoftOS,
+    | which is the master for whether a branch may work. Every pull re-applies
+    | each granted licence, not only those that changed — so a deadline set in
+    | School Monitor's manager app on a branch NugsoftOS grants lasts until the
+    | next pull. To keep a branch out, switch it off in NugsoftOS. A suspension
+    | made in School Monitor (`suspended_at`) is read and never written.
+    |
+    | Every write fires Nugsoft\RetentionExtractor\Events\LicenceApplied. The
+    | rows change under your models, not through them, so listen for it to
+    | forget anything you cache about them — School Monitor caches a branch's
+    | access for an hour.
     |
     | A licence covers the whole client. Where the rows are per branch, every
     | branch of that client is written — a client is either on or off, never
@@ -400,7 +437,7 @@ return [
     |
     |       'where' => ['deleted_at' => null],
     |
-    | Three more are read back and never written, for a product that keeps
+    | Four more are read back and never written, for a product that keeps
     | more than one fact about access:
     |
     |   'blocks'    columns any of which, set on any row, means the client may
@@ -413,11 +450,24 @@ return [
     |               access". School Monitor: ['end_date', 'grace_ends_at'].
     |
     |   'term_starts' columns whose earliest value is when a row's own term
-    |               begins. Rows not yet begun are not asked, or, where none
-    |               has begun, only the next to begin — so a renewal bought
-    |               in advance cannot hold the cycle running today at "no
-    |               access". The same rule as the subscription `pick =>
-    |               current`. School Monitor: ['start_date'].
+    |               begins. Rows not yet begun are not asked, so a renewal
+    |               bought in advance cannot hold the cycle running today at
+    |               "no access" — the same rule as the subscription `pick =>
+    |               current`. Where none has begun the answer is "no idea",
+    |               which lets the push say future, unless `blocks` is set on
+    |               the next cycle to begin. A ceiling on it is not read:
+    |               NugsoftOS's revoke caps waiting cycles too, and School
+    |               Monitor calls such a branch scheduled, not overdue.
+    |               School Monitor: ['start_date'].
+    |
+    |   'client_blocks' a switch kept on the client's own row rather than on
+    |               any of its terms: the table, the column holding the
+    |               client's external id, and columns any of which set means
+    |               the client may not work. School Monitor deactivates a
+    |               branch on `school_branches.suspended_at`, which `blocks`
+    |               cannot see from the licence table:
+    |
+    |                   ['table' => 'school_branches', 'key' => 'id', 'columns' => ['suspended_at']]
     |
     */
 

@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Nugsoft\RetentionExtractor\Events\LicenceApplied;
 use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
 use Nugsoft\RetentionExtractor\Licensing\LicenceState;
 
@@ -91,6 +93,34 @@ describe('writing a word, the way Clinic Plus does', function (): void {
         $written = applier()->apply(LicenceState::fromPayload(licencePayload(['grants_access' => true])));
 
         expect($written)->toBe(1);
+    });
+});
+
+describe('telling the product what was written', function (): void {
+    beforeEach(function (): void {
+        withStatusLicence();
+        DB::table('facilities')->insert(['id' => 1, 'name' => 'Kampala Clinic', 'status' => 'Active']);
+    });
+
+    it('announces every write, so a product can forget what it cached', function (): void {
+        Event::fake([LicenceApplied::class]);
+
+        applier()->apply(LicenceState::fromPayload(licencePayload(['grants_access' => false])));
+
+        Event::assertDispatched(
+            LicenceApplied::class,
+            fn (LicenceApplied $event): bool => $event->licence->externalId === '1'
+                && $event->licence->grantsAccess === false
+                && $event->rowsWritten === 1,
+        );
+    });
+
+    it('announces nothing for a client this product has never heard of', function (): void {
+        Event::fake([LicenceApplied::class]);
+
+        applier()->apply(LicenceState::fromPayload(licencePayload(['external_id' => '999'])));
+
+        Event::assertNotDispatched(LicenceApplied::class);
     });
 });
 
