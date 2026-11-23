@@ -105,7 +105,20 @@ abstract class TestCase extends Orchestra
             $table->string('phone')->nullable();
             $table->string('email')->nullable();
             $table->boolean('is_active')->default(true);
+            // A switch on the client's own row, as School Monitor keeps on a
+            // branch it has deactivated (`client_blocks`).
+            $table->timestamp('suspended_at')->nullable();
             $table->timestamps();
+        });
+
+        // A tenant that soft-deletes when it closes (`clients.ended`). A table
+        // of its own, so `businesses` keeps no deleted_at for the install
+        // wizard to ask about.
+        Schema::create('closable_businesses', function (Blueprint $table): void {
+            $table->id();
+            $table->string('business_name');
+            $table->timestamps();
+            $table->softDeletes();
         });
 
         // Where a business's work actually happens. `sales` carries the branch

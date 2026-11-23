@@ -11,6 +11,7 @@ use Nugsoft\RetentionExtractor\Extraction\ClientRecord;
 use Nugsoft\RetentionExtractor\Extraction\ClientResolver;
 use Nugsoft\RetentionExtractor\Extraction\SnapshotBuilder;
 use Nugsoft\RetentionExtractor\Http\RetentionClient;
+use Nugsoft\RetentionExtractor\Licensing\LicenceApplier;
 use Throwable;
 
 /**
@@ -67,7 +68,71 @@ class PushCommand extends Command
             }
         }
 
+        // Then the clients the product has ended, which `all()` no longer
+        // lists. Only their terms, and only for those NugsoftOS already
+        // licenses here: a deleted branch it never knew is not news to it.
+        $applier = null;
+
+        foreach ($clients->ended() as ['client' => $client, 'endedOn' => $endedOn]) {
+            $applier ??= app(LicenceApplier::class);
+
+            if (($only !== null && $client->externalId !== $only) || ! $applier->hasLicensed($client->externalId)) {
+                continue;
+            }
+
+            try {
+                $this->pushEnded($client, $endedOn, $snapshots, $api, $dryRun);
+                $pushed++;
+            } catch (Throwable $exception) {
+                $failed++;
+                $this->reportClientFailure($client, $exception);
+            }
+        }
+
         return $this->summarise($pushed, $failed, $dryRun);
+    }
+
+    /**
+     * An ended client's terms, as cancelled. No activity: there is none to
+     * report for a client that no longer exists, and NugsoftOS already knows
+     * it, so nothing has to introduce it first.
+     */
+    private function pushEnded(
+        ClientRecord $client,
+        string $endedOn,
+        SnapshotBuilder $snapshots,
+        RetentionClient $api,
+        bool $dryRun,
+    ): void {
+        $subscriptions = $snapshots->endedSubscriptionPayloads($client, $endedOn);
+
+        if ($dryRun) {
+            $this->line('');
+            $this->components->twoColumnDetail(
+                "<fg=cyan>{$client->name}</> <fg=gray>(ended {$endedOn})</>",
+                $client->externalId,
+            );
+
+            foreach ($subscriptions as $subscription) {
+                $this->line(json_encode($subscription, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            }
+
+            return;
+        }
+
+        $refused = null;
+
+        foreach ($subscriptions as $subscription) {
+            try {
+                $api->pushSubscription($subscription);
+            } catch (Throwable $exception) {
+                $refused ??= $exception;
+            }
+        }
+
+        if ($refused !== null) {
+            throw $refused;
+        }
     }
 
     private function pushOne(

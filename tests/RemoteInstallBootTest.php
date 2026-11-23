@@ -43,4 +43,13 @@ describe('a product told to ask where things live', function (): void {
 
         expect($scheduled)->toBeTrue();
     });
+
+    it('runs the pull and the push on one server only', function (string $command): void {
+        // A scheduler on every web server would otherwise run each once per server.
+        $event = collect(app(Schedule::class)->events())
+            ->first(fn ($event): bool => str_contains((string) $event->command, $command));
+
+        expect($event)->not->toBeNull()
+            ->and($event->onOneServer)->toBeTrue();
+    })->with(['retention:sync-licence', 'retention:push']);
 });
